@@ -1,0 +1,24 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$services = require dirname(__DIR__) . '/config/bootstrap.php';
+$options = getopt('', ['uid:']);
+$uid = $options['uid'] ?? '';
+if (!is_string($uid) || $uid === '') {
+    fwrite(STDERR, "Usage: php bin/device-regenerate-key --uid=haccp-p01-0001\n");
+    exit(2);
+}
+
+$device = $services['devices']->findByUid($uid);
+if ($device === null) {
+    fwrite(STDERR, "Device not found.\n");
+    exit(1);
+}
+
+$key = $services['keys']->generate();
+$now = $services['clock']->database($services['clock']->now());
+$services['devices']->updateApiKey($device->id, $services['keys']->hash($key), $now);
+
+fwrite(STDOUT, "Device key regenerated. The previous key is invalid immediately.\n\nDevice UID:\n{$uid}\n\nDevice Key:\n{$key}\n\nIMPORTANT:\nThis key is shown only once.\n");

@@ -1,0 +1,24 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$services = require dirname(__DIR__) . '/config/bootstrap.php';
+$rows = $services['devices']->list();
+
+if ($rows === []) {
+    fwrite(STDOUT, "No devices found.\n");
+    exit(0);
+}
+
+fwrite(STDOUT, sprintf("%-24s %-24s %-10s %-20s %-20s\n", 'DEVICE UID', 'NAME', 'STATUS', 'FIRMWARE', 'LAST SEEN UTC'));
+foreach ($rows as $row) {
+    fwrite(STDOUT, sprintf(
+        "%-24s %-24s %-10s %-20s %-20s\n",
+        $row['device_uid'],
+        substr((string) $row['name'], 0, 24),
+        $row['status'],
+        $row['firmware_version'] ?? '-',
+        $row['last_seen_at'] ?? '-',
+    ));
+}

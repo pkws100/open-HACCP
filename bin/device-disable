@@ -1,0 +1,20 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$services = require dirname(__DIR__) . '/config/bootstrap.php';
+$options = getopt('', ['uid:']);
+$uid = $options['uid'] ?? '';
+if (!is_string($uid) || $uid === '') {
+    fwrite(STDERR, "Usage: php bin/device-disable --uid=haccp-p01-0001\n");
+    exit(2);
+}
+
+$now = $services['clock']->database($services['clock']->now());
+if (!$services['devices']->disable($uid, $now)) {
+    fwrite(STDERR, "Device not found.\n");
+    exit(1);
+}
+
+fwrite(STDOUT, "Device {$uid} disabled.\n");

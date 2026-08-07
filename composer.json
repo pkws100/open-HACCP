@@ -1,0 +1,43 @@
+{
+  "name": "open-haccp/monitor-backend",
+  "description": "Developer prototype backend and Sensor Protocol V1 for Open HACCP.",
+  "type": "project",
+  "license": "MIT",
+  "require": {
+    "php": "^8.3",
+    "ext-json": "*",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*",
+    "monolog/monolog": "^3.8",
+    "opis/json-schema": "^2.4",
+    "robmorgan/phinx": "^0.16",
+    "slim/psr7": "^1.7",
+    "slim/slim": "^4.14"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^11.5",
+    "symfony/yaml": "^7.2"
+  },
+  "autoload": {
+    "psr-4": {
+      "Haccp\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Haccp\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "check": [
+      "@test"
+    ]
+  },
+  "config": {
+    "sort-packages": true,
+    "allow-plugins": {
+      "robmorgan/phinx": true
+    }
+  }
+}

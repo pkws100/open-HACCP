@@ -1,0 +1,61 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$services = require dirname(__DIR__) . '/config/bootstrap.php';
+$options = getopt('', [
+    'device:', 'code:', 'name:', 'sensor-type:', 'location::',
+    'temperature-min::', 'temperature-max::', 'humidity-min::', 'humidity-max::',
+]);
+
+$uid = $options['device'] ?? '';
+$code = $options['code'] ?? '';
+$name = $options['name'] ?? '';
+$sensorType = $options['sensor-type'] ?? '';
+if (!is_string($uid) || $uid === ''
+    || !is_string($code) || preg_match('/^[a-z0-9][a-z0-9-]{0,63}$/', $code) !== 1
+    || !is_string($name) || trim($name) === ''
+    || !is_string($sensorType) || trim($sensorType) === '') {
+    fwrite(STDERR, "Usage: php bin/measurement-point-create --device=haccp-p01-0001 --code=fridge-1 --name=\"Test fridge\" --sensor-type=SHT45 [--location=Kitchen]\n");
+    exit(2);
+}
+
+$device = $services['devices']->findByUid($uid);
+if ($device === null) {
+    fwrite(STDERR, "Device not found.\n");
+    exit(1);
+}
+
+$decimal = static function (string $name) use ($options): ?string {
+    if (!isset($options[$name]) || $options[$name] === false || $options[$name] === '') {
+        return null;
+    }
+    if (!is_numeric($options[$name])) {
+        fwrite(STDERR, sprintf("--%s must be numeric.\n", $name));
+        exit(2);
+    }
+    return number_format((float) $options[$name], 3, '.', '');
+};
+
+$now = $services['clock']->database($services['clock']->now());
+try {
+    $services['measurement_points']->create([
+        'device_id' => $device->id,
+        'code' => $code,
+        'name' => trim($name),
+        'sensor_type' => trim($sensorType),
+        'location' => isset($options['location']) && is_string($options['location']) ? $options['location'] : null,
+        'temperature_min_c' => $decimal('temperature-min'),
+        'temperature_max_c' => $decimal('temperature-max'),
+        'humidity_min_rh' => $decimal('humidity-min'),
+        'humidity_max_rh' => $decimal('humidity-max'),
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+} catch (Throwable) {
+    fwrite(STDERR, "Measurement point could not be created. Verify that the code is unique for this device.\n");
+    exit(1);
+}
+
+fwrite(STDOUT, "Measurement point {$code} created for {$uid}.\n");

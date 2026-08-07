@@ -1,0 +1,37 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$services = require dirname(__DIR__) . '/config/bootstrap.php';
+$options = getopt('', ['uid:', 'name:']);
+$uid = $options['uid'] ?? '';
+$name = $options['name'] ?? '';
+
+if (!is_string($uid) || preg_match('/^[a-z0-9][a-z0-9-]{2,63}$/', $uid) !== 1 || !is_string($name) || trim($name) === '') {
+    fwrite(STDERR, "Usage: php bin/device-create --uid=haccp-p01-0001 --name=\"Prototype A\"\n");
+    exit(2);
+}
+
+$pdo = $services['pdo'];
+$clock = $services['clock'];
+$keys = $services['keys'];
+$devices = $services['devices'];
+$configs = $services['device_configs'];
+$key = $keys->generate();
+$now = $clock->database($clock->now());
+
+try {
+    $pdo->beginTransaction();
+    $deviceId = $devices->create($uid, trim($name), $keys->hash($key), $now);
+    $configs->createDefault($deviceId, $now);
+    $pdo->commit();
+} catch (Throwable $exception) {
+    if ($pdo->inTransaction()) {
+        $pdo->rollBack();
+    }
+    fwrite(STDERR, "Device could not be created. Verify that the UID is unique.\n");
+    exit(1);
+}
+
+fwrite(STDOUT, "Device successfully created.\n\nDevice UID:\n{$uid}\n\nDevice Key:\n{$key}\n\nIMPORTANT:\nThis key is shown only once.\n");

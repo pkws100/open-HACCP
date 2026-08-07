@@ -1,0 +1,331 @@
+openapi: 3.1.0
+info:
+  title: Open HACCP Sensor API
+  version: 1.0.0
+  description: Developer prototype API and binding definition of Sensor Protocol V1.
+servers:
+  - url: http://localhost:8080
+paths:
+  /health:
+    get:
+      operationId: healthcheck
+      summary: Check application and database readiness
+      security: []
+      responses:
+        "200":
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+                service: haccp-monitor-backend
+                database: ok
+        "503":
+          description: Database is unavailable
+  /api/v1/device/measurements:
+    post:
+      operationId: uploadMeasurementBatch
+      summary: Upload a partially processable measurement batch
+      security:
+        - DeviceId: []
+          DeviceKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "./protocol-v1.schema.json"
+            example:
+              protocol_version: 1
+              batch_id: 00000042-00000127
+              firmware_version: 0.1.0
+              hardware_revision: prototype-a
+              sent_at: "2026-08-07T16:00:00Z"
+              diagnostics:
+                battery_mv: 6127
+                rssi_dbm: -58
+                wifi_connect_ms: 1834
+                boot_count: 42
+              measurements:
+                - measurement_point: fridge-1
+                  sequence: 1001
+                  measured_at: "2026-08-07T15:55:00Z"
+                  temperature_c: 4.10
+                  humidity_rh: 69.80
+                  battery_mv: 6132
+      responses:
+        "200":
+          description: Batch envelope processed; individual measurements may be rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BatchResponse"
+              example:
+                success: true
+                protocol_version: 1
+                server_time: "2026-08-07T16:00:02Z"
+                batch_id: 00000042-00000127
+                result:
+                  received: 3
+                  accepted: 2
+                  duplicates: 0
+                  rejected: 1
+                  last_sequence: 1003
+                acknowledgements:
+                  - index: 0
+                    measurement_point: fridge-1
+                    sequence: 1001
+                    status: accepted
+                  - index: 2
+                    measurement_point: fridge-1
+                    sequence: 1003
+                    status: accepted
+                rejections:
+                  - index: 1
+                    measurement_point: fridge-1
+                    sequence: 1002
+                    code: INVALID_HUMIDITY
+                    message: humidity_rh must be between 0 and 100
+                sequence_gaps: []
+                config_version: 1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/device/heartbeat:
+    post:
+      operationId: sendHeartbeat
+      summary: Send device diagnostics without measurements
+      security:
+        - DeviceId: []
+          DeviceKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/HeartbeatRequest"
+            example:
+              protocol_version: 1
+              firmware_version: 0.1.0
+              hardware_revision: prototype-a
+              battery_mv: 6127
+              rssi_dbm: -58
+              wifi_connect_ms: 1834
+              boot_count: 42
+      responses:
+        "200":
+          description: Heartbeat stored
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HeartbeatResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          $ref: "#/components/responses/UnprocessableEntity"
+        "500":
+          $ref: "#/components/responses/InternalError"
+  /api/v1/device/config:
+    get:
+      operationId: getDeviceConfig
+      summary: Fetch the current device configuration
+      security:
+        - DeviceId: []
+          DeviceKey: []
+      responses:
+        "200":
+          description: Current configuration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeviceConfigResponse"
+              example:
+                protocol_version: 1
+                config_version: 1
+                server_time: "2026-08-07T16:00:00Z"
+                measurement:
+                  interval_seconds: 300
+                upload:
+                  interval_seconds: 21600
+                  max_batch_size: 500
+                alarm:
+                  enabled: false
+                  temperature_min_c: null
+                  temperature_max_c: null
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
+components:
+  securitySchemes:
+    DeviceId:
+      type: apiKey
+      in: header
+      name: X-Device-ID
+    DeviceKey:
+      type: apiKey
+      in: header
+      name: X-Device-Key
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, service, database]
+      properties:
+        status: { type: string, const: ok }
+        service: { type: string, const: haccp-monitor-backend }
+        database: { type: string, const: ok }
+    BatchResponse:
+      type: object
+      required: [success, protocol_version, server_time, batch_id, result, acknowledgements, rejections, sequence_gaps, config_version]
+      properties:
+        success: { type: boolean, const: true }
+        protocol_version: { type: integer, const: 1 }
+        server_time: { type: string }
+        batch_id: { type: string }
+        result:
+          type: object
+          required: [received, accepted, duplicates, rejected, last_sequence]
+          properties:
+            received: { type: integer, minimum: 1, maximum: 500 }
+            accepted: { type: integer, minimum: 0 }
+            duplicates: { type: integer, minimum: 0 }
+            rejected: { type: integer, minimum: 0 }
+            last_sequence: { type: [integer, "null"] }
+        acknowledgements:
+          type: array
+          items:
+            type: object
+            required: [index, measurement_point, sequence, status]
+            properties:
+              index: { type: integer, minimum: 0 }
+              measurement_point: { type: string }
+              sequence: { type: integer, minimum: 1 }
+              status: { type: string, enum: [accepted, duplicate] }
+        rejections:
+          type: array
+          items:
+            type: object
+            required: [index, measurement_point, sequence, code, message]
+            properties:
+              index: { type: integer, minimum: 0 }
+              measurement_point: { type: [string, "null"] }
+              sequence: { type: [integer, "null"] }
+              code: { type: string }
+              message: { type: string }
+        sequence_gaps:
+          type: array
+          items:
+            type: object
+            required: [measurement_point, from_sequence, to_sequence]
+            properties:
+              measurement_point: { type: string }
+              from_sequence: { type: integer, minimum: 1 }
+              to_sequence: { type: integer, minimum: 1 }
+        config_version: { type: integer, minimum: 1 }
+    HeartbeatRequest:
+      $ref: "./protocol-v1.schema.json#/$defs/heartbeat"
+    HeartbeatResponse:
+      type: object
+      required: [success, protocol_version, server_time, config_version]
+      properties:
+        success: { type: boolean, const: true }
+        protocol_version: { type: integer, const: 1 }
+        server_time: { type: string }
+        config_version: { type: integer, minimum: 1 }
+    DeviceConfigResponse:
+      type: object
+      required: [protocol_version, config_version, server_time, measurement, upload, alarm]
+      properties:
+        protocol_version: { type: integer, const: 1 }
+        config_version: { type: integer, minimum: 1 }
+        server_time: { type: string }
+        measurement:
+          type: object
+          required: [interval_seconds]
+          properties:
+            interval_seconds: { type: integer, minimum: 1 }
+        upload:
+          type: object
+          required: [interval_seconds, max_batch_size]
+          properties:
+            interval_seconds: { type: integer, minimum: 1 }
+            max_batch_size: { type: integer, minimum: 1, maximum: 500 }
+        alarm:
+          type: object
+          required: [enabled, temperature_min_c, temperature_max_c]
+          properties:
+            enabled: { type: boolean }
+            temperature_min_c: { type: [number, "null"] }
+            temperature_max_c: { type: [number, "null"] }
+    ErrorResponse:
+      type: object
+      required: [success, error]
+      properties:
+        success: { type: boolean, const: false }
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string }
+            message: { type: string }
+            details: { type: object }
+  responses:
+    BadRequest:
+      description: Malformed JSON request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Unauthorized:
+      description: Missing, invalid, or disabled device credentials
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          example:
+            success: false
+            error:
+              code: DEVICE_AUTHENTICATION_FAILED
+              message: Device authentication failed
+    PayloadTooLarge:
+      description: Request body exceeds 256 KiB
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    UnsupportedMediaType:
+      description: Content-Type is not application/json
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    UnprocessableEntity:
+      description: Batch envelope or heartbeat is semantically invalid
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    TooManyRequests:
+      description: Reserved for rate limiting
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    InternalError:
+      description: Internal server error without stack trace
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }

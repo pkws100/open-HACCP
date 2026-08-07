@@ -1,0 +1,82 @@
+services:
+  app:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  db:
+    image: mariadb:10.11
+    env_file:
+      - .env
+    environment:
+      MARIADB_DATABASE: ${DB_DATABASE}
+      MARIADB_USER: ${DB_USERNAME}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - haccp-db-data:/var/lib/mysql
+    restart: unless-stopped
+
+  test-db:
+    image: mariadb:10.11
+    profiles: ["test"]
+    environment:
+      MARIADB_DATABASE: haccp_test
+      MARIADB_USER: haccp_test
+      MARIADB_PASSWORD: haccp_test_password
+      MARIADB_ROOT_PASSWORD: haccp_test_root_password
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    tmpfs:
+      - /var/lib/mysql
+
+  tests:
+    build:
+      context: .
+    profiles: ["test"]
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["vendor/bin/phinx migrate -e test && vendor/bin/phpunit"]
+    environment:
+      APP_ENV: test
+      APP_DEBUG: "false"
+      APP_TIMEZONE: UTC
+      MIGRATE_ON_START: "false"
+      DB_HOST: test-db
+      DB_PORT: 3306
+      DB_DATABASE: haccp_test
+      DB_USERNAME: haccp_test
+      DB_PASSWORD: haccp_test_password
+      DEVICE_API_KEY_PEPPER: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    depends_on:
+      test-db:
+        condition: service_healthy
+
+volumes:
+  haccp-db-data:
