@@ -6,6 +6,7 @@ namespace Haccp\Controller;
 
 use Haccp\Config;
 use Haccp\Service\DashboardSettingsService;
+use Haccp\Service\AuditService;
 use Haccp\Support\JsonBody;
 use Haccp\Support\JsonResponse;
 use Psr\Http\Message\ResponseInterface;
@@ -13,7 +14,7 @@ use Psr\Http\Message\ServerRequestInterface;
 
 final readonly class DashboardSettingsController
 {
-    public function __construct(private DashboardSettingsService $service, private Config $config)
+    public function __construct(private DashboardSettingsService $service, private Config $config, private AuditService $audit)
     {
     }
 
@@ -21,7 +22,11 @@ final readonly class DashboardSettingsController
     {
         $payload = JsonBody::decode($request, $this->config->maxRequestBytes);
 
-        return JsonResponse::write($response, $this->service->update((string) $arguments['device_uid'], $payload))
+        $result = $this->service->update((string) $arguments['device_uid'], $payload);
+        $user = $request->getAttribute('dashboard_user');
+        $this->audit->append('device.settings_updated', (int) $user['id'], 'device', (string) $arguments['device_uid'], ['config_version' => $result['config_version']]);
+
+        return JsonResponse::write($response, $result)
             ->withHeader('Cache-Control', 'no-store');
     }
 }

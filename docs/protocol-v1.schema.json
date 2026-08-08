@@ -30,7 +30,13 @@
         "battery_mv": { "type": "integer", "minimum": 0, "maximum": 10000 },
         "rssi_dbm": { "type": "integer", "minimum": -120, "maximum": 0 },
         "wifi_connect_ms": { "type": "integer", "minimum": 0, "maximum": 120000 },
-        "boot_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "boot_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "errors": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z0-9_.-]{1,64}$" }
+        }
       },
       "additionalProperties": true
     },
@@ -113,7 +119,13 @@
         "battery_mv": { "type": "integer", "minimum": 0, "maximum": 10000 },
         "rssi_dbm": { "type": "integer", "minimum": -120, "maximum": 0 },
         "wifi_connect_ms": { "type": "integer", "minimum": 0, "maximum": 120000 },
-        "boot_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        "boot_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "errors": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Z0-9_.-]{1,64}$" }
+        }
       },
       "additionalProperties": true
     }

@@ -206,7 +206,7 @@ final readonly class DashboardSettingsService
         }
 
         if ($fields !== []) {
-            throw new ApiException(422, 'INVALID_DEVICE_SETTINGS', 'Device settings are invalid', ['fields' => $fields]);
+            throw new ApiException(422, 'INVALID_DEVICE_SETTINGS', 'Die Geräteeinstellungen sind ungültig.', ['fields' => $fields]);
         }
 
         $validated = [

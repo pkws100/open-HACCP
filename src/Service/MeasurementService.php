@@ -26,6 +26,7 @@ final readonly class MeasurementService
         private MeasurementRepository $measurements,
         private TransmissionRepository $transmissions,
         private DeviceConfigService $configService,
+        private ComplianceEventService $eventService,
         private GapDetector $gapDetector,
         private Clock $clock,
         private LoggerInterface $logger,
@@ -59,6 +60,7 @@ final readonly class MeasurementService
                 'accepted_count' => 0,
                 'duplicate_count' => 0,
                 'rejected_count' => 0,
+                'diagnostic_errors_json' => $diagnostics['errors'] === [] ? null : json_encode($diagnostics['errors'], JSON_THROW_ON_ERROR),
                 'remote_ip' => $remoteIp,
                 'created_at' => $receivedAt,
             ]);
@@ -132,7 +134,15 @@ final readonly class MeasurementService
                     $status = 'duplicate';
                 } else {
                     try {
-                        $this->measurements->insert($device->id, $pointId, $measurement, $receivedAt);
+                        $measurementId = $this->measurements->insert($device->id, $pointId, $measurement, $receivedAt);
+                        $this->eventService->measurement(
+                            $device->id,
+                            $pointId,
+                            $measurementId,
+                            (float) $measurement['temperature_c'],
+                            (string) $measurement['measured_at_db'],
+                            $configuration,
+                        );
                         $accepted++;
                         $status = 'accepted';
                     } catch (PDOException $exception) {
@@ -165,6 +175,22 @@ final readonly class MeasurementService
             }
 
             $rejected = count($rejections);
+            $gaps = $this->gapDetector->detect($acknowledgedByPoint, $previousMax);
+            $this->eventService->diagnostics(
+                $device->id,
+                $transmissionId,
+                (int) $diagnostics['battery_mv'],
+                (int) $diagnostics['rssi_dbm'],
+                $configuration,
+                $receivedAt,
+                $diagnostics['errors'],
+            );
+            foreach ($rejections as $rejection) {
+                $this->eventService->rejection($device->id, $receivedAt, $rejection, $transmissionId);
+            }
+            foreach ($gaps as $gap) {
+                $this->eventService->sequenceGap($device->id, $receivedAt, $gap, $transmissionId);
+            }
             $this->transmissions->updateCounts($transmissionId, $accepted, $duplicates, $rejected);
             $this->pdo->commit();
         } catch (Throwable $exception) {
@@ -174,7 +200,6 @@ final readonly class MeasurementService
             throw $exception;
         }
 
-        $gaps = $this->gapDetector->detect($acknowledgedByPoint, $previousMax);
         $lastSequence = null;
         foreach ($acknowledgements as $acknowledgement) {
             $lastSequence = max($lastSequence ?? 0, $acknowledgement['sequence']);

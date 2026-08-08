@@ -1,8 +1,18 @@
 openapi: 3.1.0
 info:
-  title: Open HACCP Sensor API
-  version: 1.0.0
-  description: Developer prototype API and binding definition of Sensor Protocol V1.
+  title: Open HACCP API
+  version: 1.1.0
+  description: Sensor Protocol V1 plus the session-protected operational, compliance and export dashboard API.
+  x-stable-error-codes:
+    - AUTHENTICATION_REQUIRED
+    - PASSWORD_CHANGE_REQUIRED
+    - CSRF_FAILED
+    - FORBIDDEN
+    - LEGAL_PROFILE_INCOMPLETE
+    - INVALID_EXPORT_REQUEST
+    - EXPORT_NOT_READY
+    - EXPORT_EXPIRED
+    - ACTION_VALIDATION_FAILED
 servers:
   - url: https://haccp.pow24.org
     description: VPS test deployment; HTTPS is mandatory for sensor firmware
@@ -190,13 +200,80 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/auth/login:
+    post:
+      operationId: dashboardLogin
+      summary: Start a dashboard session
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [username, password]
+              properties:
+                username: { type: string, maxLength: 80 }
+                password: { type: string, minLength: 1, maxLength: 128 }
+      responses:
+        "200":
+          description: Session cookie, current user and CSRF token
+          headers:
+            Set-Cookie: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+  /api/v1/auth/me:
+    get:
+      operationId: getCurrentDashboardUser
+      summary: Read the current session user and CSRF token
+      security: [{ DashboardSession: [] }]
+      responses:
+        "200":
+          description: Current session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+  /api/v1/auth/logout:
+    post:
+      operationId: dashboardLogout
+      summary: Revoke the current session
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      responses:
+        "200": { description: Session revoked }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/auth/me/password:
+    put:
+      operationId: changeDashboardPassword
+      summary: Change the current password and revoke all sessions
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [current_password, new_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+                new_password: { type: string, minLength: 12, maxLength: 128 }
+      responses:
+        "200": { description: Password changed; reauthentication required }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /api/v1/dashboard/overview:
     get:
       operationId: getDashboardOverview
       summary: Read the developer dashboard overview
       description: Read-only operational data; not part of the firmware contract.
       security:
-        - DashboardBasic: []
+        - DashboardSession: []
       parameters:
         - in: query
           name: device
@@ -220,16 +297,117 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/dashboard/analysis:
+    get:
+      operationId: getDashboardAnalysis
+      summary: Read measurements, events, connections and battery forecast
+      security: [{ DashboardSession: [] }]
+      parameters:
+        - { in: query, name: days, schema: { type: integer, enum: [7, 30, 90], default: 30 } }
+        - { in: query, name: device, schema: { type: string } }
+        - { in: query, name: measurement_point_id, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Analysis data and accessible tabular series }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/events:
+    get:
+      operationId: listComplianceEvents
+      summary: List the deviation timeline
+      security: [{ DashboardSession: [] }]
+      parameters:
+        - { in: query, name: state, schema: { type: string } }
+        - { in: query, name: device, schema: { type: string } }
+        - { in: query, name: days, schema: { type: integer, enum: [7, 30, 90, 366] } }
+      responses:
+        "200": { description: Filtered persistent events }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+  /api/v1/dashboard/events/{id}:
+    get:
+      operationId: getComplianceEvent
+      summary: Read an event, actions and all action revisions
+      security: [{ DashboardSession: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Event detail }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/dashboard/events/{id}/acknowledge:
+    post:
+      operationId: acknowledgeComplianceEvent
+      summary: Acknowledge an open event
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Event acknowledged }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/dashboard/events/{id}/actions:
+    post:
+      operationId: recordCorrectiveAction
+      summary: Append a corrective action to an event
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CorrectiveActionRequest" }
+      responses:
+        "201": { description: Action and revision 1 recorded }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/actions/{id}:
+    put:
+      operationId: reviseCorrectiveAction
+      summary: Append a correction revision before verification
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CorrectiveActionRevisionRequest" }
+      responses:
+        "200": { description: Revision appended }
+        "409": { description: "ACTION_REVISION_CONFLICT or immutable verified action" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/actions/{id}/verify:
+    post:
+      operationId: verifyCorrectiveAction
+      summary: Verify and close an action using the current password
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [note, password]
+              properties:
+                note: { type: string, minLength: 1, maxLength: 4000 }
+                password: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Verification stored and action made immutable }
+        "409": { description: Action already verified }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /api/v1/dashboard/devices:
     post:
       operationId: provisionDashboardDevice
       summary: Create a device, its first measurement point, and one-time setup credentials
       description: >-
-        Operator endpoint protected by Dashboard Basic authentication. The plaintext device key exists only in
+        Administrator/operator endpoint protected by a database session and CSRF token. The plaintext device key exists only in
         this non-cacheable response; the server stores its peppered HMAC-SHA-256 digest. This endpoint is not part
         of Sensor Protocol V1.
       security:
-        - DashboardBasic: []
+        - DashboardSession: []
+          CsrfToken: []
       requestBody:
         required: true
         content:
@@ -264,7 +442,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: Requested device UID already exists (`DEVICE_UID_ALREADY_EXISTS`)
+          description: "Requested device UID already exists (DEVICE_UID_ALREADY_EXISTS)"
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -273,7 +451,7 @@ paths:
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
         "422":
-          description: Provisioning values are invalid (`INVALID_DEVICE_PROVISIONING`)
+          description: "Provisioning values are invalid (INVALID_DEVICE_PROVISIONING)"
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -284,10 +462,11 @@ paths:
       operationId: updateDashboardDeviceSettings
       summary: Create a new version of device alarm, battery, and optional reporting schedule settings
       description: >-
-        Operator endpoint protected by Dashboard Basic authentication; not part of Sensor Protocol V1. If schedule
+        Administrator/operator endpoint protected by a database session and CSRF token; not part of Sensor Protocol V1. If schedule
         is omitted, the existing device and measurement-point intervals are preserved.
       security:
-        - DashboardBasic: []
+        - DashboardSession: []
+          CsrfToken: []
       parameters:
         - in: path
           name: device_uid
@@ -346,6 +525,207 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/dashboard/devices/{device_uid}/battery-replaced:
+    post:
+      operationId: startBatteryCycle
+      summary: Record a battery replacement and start a new forecast cycle
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: device_uid, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                chemistry: { type: string, maxLength: 64 }
+                series_count: { type: integer, minimum: 1, maximum: 16 }
+                nominal_capacity_mah: { type: [integer, "null"], minimum: 1, maximum: 100000 }
+                forecast_enabled: { type: boolean }
+      responses:
+        "201": { description: Battery cycle started }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/exports:
+    get:
+      operationId: listExports
+      summary: List accessible export jobs
+      security: [{ DashboardSession: [] }]
+      responses:
+        "200":
+          description: Export history including status, expiry and checksum
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, jobs]
+                properties:
+                  success: { type: boolean, const: true }
+                  jobs: { type: array, items: { $ref: "#/components/schemas/ExportJob" } }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+    post:
+      operationId: createExport
+      summary: Queue an authority or extended export
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExportRequest" }
+      responses:
+        "202":
+          description: Job accepted for background processing
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, job, jobs, split]
+                properties:
+                  success: { type: boolean, const: true }
+                  job: { $ref: "#/components/schemas/ExportJob" }
+                  jobs: { type: array, items: { $ref: "#/components/schemas/ExportJob" } }
+                  split: { type: boolean, description: True when the requested range was divided into 366-day jobs. }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { description: "INVALID_EXPORT_REQUEST" }
+  /api/v1/dashboard/exports/{id}:
+    get:
+      operationId: getExport
+      summary: Read one export job
+      security: [{ DashboardSession: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200": { description: Export job }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/dashboard/exports/{id}/download:
+    get:
+      operationId: downloadExport
+      summary: Download a completed, non-expired export
+      security: [{ DashboardSession: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: PDF, XLSX or CSV ZIP artifact
+          content:
+            application/pdf: { schema: { type: string, format: binary } }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet: { schema: { type: string, format: binary } }
+            application/zip: { schema: { type: string, format: binary } }
+        "409": { description: "EXPORT_NOT_READY" }
+        "410": { description: "EXPORT_EXPIRED" }
+  /api/v1/dashboard/users:
+    get:
+      operationId: listUsers
+      summary: List retained active and inactive users
+      security: [{ DashboardSession: [] }]
+      responses:
+        "200": { description: User list }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      operationId: createUser
+      summary: Create a user and return a one-time temporary password
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UserCreateRequest" }
+      responses:
+        "201": { description: User and one-time temporary password; response is not cacheable }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Username exists }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/users/{id}:
+    put:
+      operationId: updateUser
+      summary: Update role/profile or deactivate while retaining references
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: { type: string, minLength: 1, maxLength: 160 }
+                email: { type: [string, "null"], format: email, maxLength: 254 }
+                role: { type: string, enum: [administrator, operator, auditor] }
+                active: { type: boolean }
+      responses:
+        "200": { description: Updated user; role/deactivation revokes sessions }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: Last active administrator must remain }
+  /api/v1/dashboard/users/{id}/reset-password:
+    post:
+      operationId: resetUserPassword
+      summary: Revoke sessions and return a one-time temporary password
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200": { description: Temporary password; response is not cacheable }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/dashboard/establishment:
+    get:
+      operationId: getEstablishment
+      summary: Read business identity and current point profiles
+      security: [{ DashboardSession: [] }]
+      responses:
+        "200": { description: Establishment and point compliance data }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    put:
+      operationId: updateEstablishment
+      summary: Update business identity, timezone, retention and HACCP responsibility
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EstablishmentRequest" }
+      responses:
+        "200": { description: Establishment updated }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/measurement-points/{id}/compliance:
+    put:
+      operationId: updateMeasurementPointCompliance
+      summary: Append a versioned compliance and instrument profile
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ComplianceProfileRequest" }
+      responses:
+        "200": { description: New profile version created }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { description: "COMPLIANCE_VERSION_CONFLICT" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/compliance/preflight:
+    get:
+      operationId: compliancePreflight
+      summary: Check business, responsibility, point and quick-frozen evidence readiness
+      security: [{ DashboardSession: [] }]
+      responses:
+        "200":
+          description: Completeness flag and issue list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, complete, issues]
+                properties:
+                  success: { type: boolean, const: true }
+                  complete: { type: boolean }
+                  issues: { type: array, items: { type: string } }
 components:
   securitySchemes:
     DeviceId:
@@ -356,9 +736,14 @@ components:
       type: apiKey
       in: header
       name: X-Device-Key
-    DashboardBasic:
-      type: http
-      scheme: basic
+    DashboardSession:
+      type: apiKey
+      in: cookie
+      name: haccp_session
+    CsrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
   schemas:
     HealthResponse:
       type: object
@@ -510,7 +895,7 @@ components:
         device_uid:
           type: string
           pattern: "^[a-z0-9][a-z0-9-]{2,63}$"
-          description: Optional; the server generates `haccp-` plus 12 random hexadecimal characters when omitted.
+          description: "Optional; the server generates haccp- plus 12 random hexadecimal characters when omitted."
         name: { type: string, minLength: 1, maxLength: 160 }
         measurement_point:
           type: object
@@ -593,6 +978,127 @@ components:
         alarm_status:
           type: string
           enum: [normal, below_min, above_max, disabled, no_data]
+    DashboardUser:
+      type: object
+      required: [id, username, display_name, role, password_change_required, active]
+      properties:
+        id: { type: integer, minimum: 1 }
+        username: { type: string }
+        display_name: { type: string }
+        email: { type: [string, "null"], format: email }
+        role: { type: string, enum: [administrator, operator, auditor] }
+        password_change_required: { type: boolean }
+        active: { type: boolean }
+    AuthResponse:
+      type: object
+      required: [success, user, csrf_token]
+      properties:
+        success: { type: boolean, const: true }
+        user: { $ref: "#/components/schemas/DashboardUser" }
+        csrf_token: { type: string, pattern: "^[a-f0-9]{64}$" }
+    CorrectiveActionRequest:
+      type: object
+      additionalProperties: false
+      required: [cause, action_taken, product_disposition, performed_at]
+      properties:
+        cause: { type: string, minLength: 1, maxLength: 4000 }
+        action_taken: { type: string, minLength: 1, maxLength: 4000 }
+        product_disposition: { type: string, minLength: 1, maxLength: 4000 }
+        preventive_follow_up: { type: [string, "null"], maxLength: 4000 }
+        performed_at: { type: string, format: date-time }
+        responsible_user_id: { type: integer, minimum: 1 }
+    CorrectiveActionRevisionRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_revision, cause, action_taken, product_disposition, performed_at]
+      properties:
+        expected_revision: { type: integer, minimum: 1 }
+        cause: { type: string, minLength: 1, maxLength: 4000 }
+        action_taken: { type: string, minLength: 1, maxLength: 4000 }
+        product_disposition: { type: string, minLength: 1, maxLength: 4000 }
+        preventive_follow_up: { type: [string, "null"], maxLength: 4000 }
+        performed_at: { type: string, format: date-time }
+        responsible_user_id: { type: integer, minimum: 1 }
+    ExportRequest:
+      type: object
+      additionalProperties: false
+      required: [mode, format, legal_profile, from, to, device_uids, measurement_point_ids]
+      properties:
+        mode: { type: string, enum: [authority, extended] }
+        format: { type: string, enum: [pdf, xlsx, csv] }
+        legal_profile: { type: string, enum: [configured, general_haccp, quick_frozen] }
+        from: { type: string, format: date }
+        to: { type: string, format: date, description: Inclusive; maximum period is 366 days. }
+        device_uids: { type: array, maxItems: 100, items: { type: string } }
+        measurement_point_ids: { type: array, maxItems: 100, items: { type: integer, minimum: 1 } }
+        extended_fields:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [humidity, battery, battery_forecast, rssi, wifi_timing, firmware, sequences, received_at, transmissions, configuration]
+    ExportJob:
+      type: object
+      required: [public_id, status, mode, format, draft, created_at]
+      properties:
+        public_id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, running, complete, failed, expired] }
+        mode: { type: string, enum: [authority, extended] }
+        format: { type: string, enum: [pdf, xlsx, csv] }
+        draft: { type: boolean }
+        requested_by: { type: string }
+        attempt_count: { type: integer, minimum: 0, maximum: 2 }
+        file_name: { type: [string, "null"] }
+        file_size: { type: [integer, "null"] }
+        sha256: { type: [string, "null"], pattern: "^[a-f0-9]{64}$" }
+        error_code: { type: [string, "null"] }
+        created_at: { type: string }
+        completed_at: { type: [string, "null"] }
+        expires_at: { type: [string, "null"] }
+    UserCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [username, display_name, role]
+      properties:
+        username: { type: string, pattern: "^[a-z0-9][a-z0-9._-]{2,79}$" }
+        display_name: { type: string, minLength: 1, maxLength: 160 }
+        email: { type: [string, "null"], format: email, maxLength: 254 }
+        role: { type: string, enum: [administrator, operator, auditor] }
+    EstablishmentRequest:
+      type: object
+      required: [legal_name, address_line1, postal_code, city, country_code, timezone, general_retention_months]
+      properties:
+        legal_name: { type: string, minLength: 1, maxLength: 200 }
+        trade_name: { type: [string, "null"], maxLength: 200 }
+        address_line1: { type: string, minLength: 1, maxLength: 200 }
+        address_line2: { type: [string, "null"], maxLength: 200 }
+        postal_code: { type: string, minLength: 1, maxLength: 20 }
+        city: { type: string, minLength: 1, maxLength: 120 }
+        country_code: { type: string, pattern: "^[A-Z]{2}$" }
+        authority_reference: { type: [string, "null"], maxLength: 160 }
+        timezone: { type: string, example: Europe/Berlin }
+        haccp_responsible_user_id: { type: [integer, "null"], minimum: 1 }
+        general_retention_months: { type: integer, minimum: 1, maximum: 120 }
+    ComplianceProfileRequest:
+      type: object
+      required: [expected_config_version, legal_profile, control_classification, monitoring_purpose, retention_months]
+      properties:
+        expected_config_version: { type: integer, minimum: 0 }
+        legal_profile: { type: string, enum: [general_haccp, quick_frozen] }
+        control_classification: { type: string, enum: [GHP, OPRP, CCP] }
+        monitoring_purpose: { type: string, minLength: 1, maxLength: 255 }
+        humidity_is_critical: { type: boolean }
+        retention_months: { type: integer, minimum: 1, maximum: 120 }
+        responsible_user_id: { type: [integer, "null"], minimum: 1 }
+        instrument_manufacturer: { type: [string, "null"], maxLength: 160 }
+        instrument_model: { type: [string, "null"], maxLength: 160 }
+        instrument_serial: { type: [string, "null"], maxLength: 160 }
+        conformity_status: { type: string, enum: [not_documented, documented, expired] }
+        conformity_reference: { type: [string, "null"], maxLength: 255 }
+        calibration_reference: { type: [string, "null"], maxLength: 255 }
+        verification_reference: { type: [string, "null"], maxLength: 255 }
+        calibrated_at: { type: [string, "null"], format: date }
+        verification_due_at: { type: [string, "null"], format: date }
     ErrorResponse:
       type: object
       required: [success, error]
@@ -606,6 +1112,21 @@ components:
             message: { type: string }
             details: { type: object }
   responses:
+    DashboardUnauthorized:
+      description: "AUTHENTICATION_REQUIRED or invalid login credentials"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    Forbidden:
+      description: "FORBIDDEN, CSRF_FAILED, or PASSWORD_CHANGE_REQUIRED"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+    NotFound:
+      description: Requested dashboard resource was not found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
     BadRequest:
       description: Malformed JSON request
       content:

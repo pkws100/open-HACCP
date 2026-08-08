@@ -209,10 +209,13 @@ final class ApiIntegrationTest extends IntegrationTestCase
     {
         $statement = $this->pdo->query(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN
-             ('devices', 'measurement_points', 'measurements', 'device_transmissions', 'device_configs')",
+             ('devices', 'measurement_points', 'measurements', 'device_transmissions', 'device_configs',
+              'users', 'user_sessions', 'login_attempts', 'establishments', 'measurement_point_compliance_configs',
+              'battery_cycles', 'compliance_events', 'corrective_actions', 'corrective_action_revisions',
+              'event_verifications', 'audit_log', 'audit_chain_state', 'export_jobs')",
         );
 
-        self::assertCount(5, $statement->fetchAll());
+        self::assertCount(18, $statement->fetchAll());
         $columns = $this->pdo->query(
             "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE()
              AND table_name = 'device_configs' AND column_name IN ('battery_low_mv', 'battery_full_mv')",
@@ -220,13 +223,12 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertCount(2, $columns->fetchAll());
     }
 
-    public function testDashboardRequiresBasicAuthentication(): void
+    public function testDashboardRequiresSessionAuthentication(): void
     {
-        $response = $this->dashboardRequest('/dashboard', false);
+        $response = $this->dashboardRequest('/api/v1/dashboard/overview', false);
 
         self::assertSame(401, $response->getStatusCode());
-        self::assertSame('DASHBOARD_AUTHENTICATION_REQUIRED', $this->json($response)['error']['code']);
-        self::assertStringContainsString('Basic realm=', $response->getHeaderLine('WWW-Authenticate'));
+        self::assertSame('AUTHENTICATION_REQUIRED', $this->json($response)['error']['code']);
     }
 
     public function testDashboardRendersAndOverviewReturnsStoredMeasurements(): void
@@ -247,6 +249,8 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertCount(3, $json['recent_measurements']);
         self::assertSame('full', $json['selected_device']['battery']['state']);
         self::assertSame(3, $json['selected_device']['wifi']['bars']);
+        self::assertSame($json['kpis']['latest_temperature_c'], $json['devices'][0]['latest_temperature_c']);
+        self::assertNotNull($json['devices'][0]['latest_temperature_measured_at']);
         self::assertSame('disabled', $json['kpis']['alarm_status']);
         self::assertSame(1, $json['settings']['config_version']);
         self::assertSame(300, $json['settings']['schedule']['default_measurement_interval_seconds']);

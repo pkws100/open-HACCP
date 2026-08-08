@@ -19,11 +19,11 @@ final readonly class TransmissionRepository
             'INSERT INTO device_transmissions
              (device_id, transmission_type, request_id, batch_id, received_at, firmware_version,
               hardware_revision, battery_mv, rssi_dbm, wifi_connect_ms, boot_count, measurement_count,
-              accepted_count, duplicate_count, rejected_count, remote_ip, created_at)
+              accepted_count, duplicate_count, rejected_count, diagnostic_errors_json, remote_ip, created_at)
              VALUES
              (:device_id, :transmission_type, :request_id, :batch_id, :received_at, :firmware_version,
               :hardware_revision, :battery_mv, :rssi_dbm, :wifi_connect_ms, :boot_count, :measurement_count,
-              :accepted_count, :duplicate_count, :rejected_count, :remote_ip, :created_at)',
+              :accepted_count, :duplicate_count, :rejected_count, :diagnostic_errors_json, :remote_ip, :created_at)',
         );
         $statement->execute($data);
 

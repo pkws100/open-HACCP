@@ -17,10 +17,12 @@ final readonly class Config
         public string $dbUser,
         public string $dbPassword,
         public string $deviceKeyPepper,
+        public string $auditLogKey,
         public string $dashboardUsername,
         public string $dashboardPassword,
         public int $maxRequestBytes = 262_144,
         public string $publicApiBaseUrl = 'https://haccp.pow24.org',
+        public string $exportPath = '/var/lib/haccp-exports',
     ) {
     }
 
@@ -32,6 +34,7 @@ final readonly class Config
             'DB_USERNAME',
             'DB_PASSWORD',
             'DEVICE_API_KEY_PEPPER',
+            'AUDIT_LOG_KEY',
             'DASHBOARD_USERNAME',
             'DASHBOARD_PASSWORD',
         ];
@@ -45,8 +48,16 @@ final readonly class Config
         if (strlen($pepper) < 32) {
             throw new RuntimeException('DEVICE_API_KEY_PEPPER must contain at least 32 characters.');
         }
-        if (strlen(self::environment('DASHBOARD_PASSWORD')) < 12) {
-            throw new RuntimeException('DASHBOARD_PASSWORD must contain at least 12 characters.');
+        $auditLogKey = self::environment('AUDIT_LOG_KEY');
+        if (strlen($auditLogKey) < 32) {
+            throw new RuntimeException('AUDIT_LOG_KEY must contain at least 32 characters.');
+        }
+        if (hash_equals($pepper, $auditLogKey)) {
+            throw new RuntimeException('AUDIT_LOG_KEY must be different from DEVICE_API_KEY_PEPPER.');
+        }
+        $dashboardPasswordLength = mb_strlen(self::environment('DASHBOARD_PASSWORD'));
+        if ($dashboardPasswordLength < 12 || $dashboardPasswordLength > 128) {
+            throw new RuntimeException('DASHBOARD_PASSWORD must contain 12 to 128 characters.');
         }
         $publicApiBaseUrl = rtrim(self::environment('PUBLIC_API_BASE_URL', 'https://haccp.pow24.org'), '/');
         if (filter_var($publicApiBaseUrl, FILTER_VALIDATE_URL) === false
@@ -66,9 +77,11 @@ final readonly class Config
             dbUser: self::environment('DB_USERNAME'),
             dbPassword: self::environment('DB_PASSWORD'),
             deviceKeyPepper: $pepper,
+            auditLogKey: $auditLogKey,
             dashboardUsername: self::environment('DASHBOARD_USERNAME'),
             dashboardPassword: self::environment('DASHBOARD_PASSWORD'),
             publicApiBaseUrl: $publicApiBaseUrl,
+            exportPath: rtrim(self::environment('EXPORT_PATH', '/var/lib/haccp-exports'), '/'),
         );
     }
 

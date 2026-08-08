@@ -4,320 +4,98 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b1212">
   <title>Open HACCP Monitor</title>
-  <link rel="stylesheet" href="/assets/dashboard.css?v=4">
-  <script src="/assets/dashboard.js?v=4" defer></script>
+  <link rel="stylesheet" href="/assets/dashboard.css?v=20260809-2">
 </head>
 <body>
-  <header class="topbar">
-    <a class="brand" href="/dashboard" aria-label="Open HACCP Monitor">
-      <span class="brand-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" role="img">
-          <path d="M16 3v26M5 9l22 14M27 9 5 23M10 4l6 5 6-5M10 28l6-5 6 5M4 15l7 1-1 7M28 15l-7 1 1 7"/>
-        </svg>
-      </span>
-      <span><strong>OPEN HACCP</strong><small>Monitor</small></span>
-    </a>
-    <div class="sync-state" aria-live="polite">
-      <span class="live-dot"></span>
-      <span id="sync-label">Daten werden geladen</span>
-      <button id="refresh-button" class="icon-button" type="button" aria-label="Daten aktualisieren" title="Aktualisieren">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.2-2.1L20 9M4 15l2.7 2.1A7 7 0 0 0 17.9 15"/></svg>
-      </button>
-    </div>
-  </header>
-
+  <a class="skip-link" href="#workspace">Zum Inhalt springen</a>
   <div class="app-shell">
-    <aside class="device-rail" aria-label="Geräte">
-      <div class="rail-heading">
-        <span>Geräte</span>
-        <div class="rail-heading-actions">
-          <strong id="device-count">–</strong>
-          <button id="add-device-button" class="add-device-button" type="button" aria-label="Neues Gerät anlernen" title="Gerät anlernen">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-          </button>
-        </div>
+    <header class="topbar">
+      <a class="brand" href="#overview" aria-label="Open HACCP Monitor Übersicht">
+        <span class="brand-mark" aria-hidden="true"><span></span></span>
+        <span><strong>Open HACCP</strong><small>Monitor</small></span>
+      </a>
+      <button class="mobile-menu" id="mobile-menu" type="button" aria-expanded="false" aria-controls="primary-nav">Menü</button>
+      <div class="topbar-status">
+        <span class="live-indicator"><i></i> System aktiv</span>
+        <button class="user-menu" id="user-menu" type="button"><span id="user-initials">–</span><span id="user-name">Wird geladen</span></button>
+        <button class="quiet-button" id="logout" type="button">Abmelden</button>
       </div>
-      <nav id="device-list" class="device-list" aria-label="Verfügbare Geräte"></nav>
-      <div class="rail-foot">
-        <span>API</span>
-        <a href="/health" target="_blank" rel="noreferrer">Systemstatus</a>
-      </div>
-    </aside>
+    </header>
 
-    <main class="workspace">
-      <section class="workspace-head" aria-labelledby="workspace-title">
-        <div>
-          <p class="eyebrow" id="device-uid">Noch kein Gerät</p>
-          <h1 id="workspace-title">Messstellenübersicht</h1>
-          <p class="context-line" id="device-context">Warten auf Sensordaten</p>
+    <nav class="primary-nav" id="primary-nav" aria-label="Hauptnavigation">
+      <a href="#overview" data-view-link="overview" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-13h6V4h-6v3Z"/></svg><span>Übersicht</span></a>
+      <a href="#analysis" data-view-link="analysis"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/></svg><span>Analyse</span></a>
+      <a href="#events" data-view-link="events"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 20h18.4L12 3Zm0 6v5m0 3v.1"/></svg><span>Abweichungen</span><b id="event-badge" hidden>0</b></a>
+      <a href="#exports" data-view-link="exports"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7V3Zm7 0v5h5M10 13h5m-5 4h5"/></svg><span>Exporte</span></a>
+      <a href="#users" data-view-link="users" data-admin-only><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-6 9a6 6 0 0 1 12 0m3-8a3 3 0 1 0 0-6m0 9c3 0 5 2 5 5"/></svg><span>Benutzer</span></a>
+      <a href="#establishment" data-view-link="establishment" data-admin-only><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg><span>Betrieb</span></a>
+    </nav>
+
+    <main id="workspace" class="workspace" tabindex="-1">
+      <div id="global-message" class="global-message" role="status" hidden></div>
+
+      <section class="view is-active" data-view="overview" aria-labelledby="overview-title">
+        <header class="view-heading">
+          <div><p class="eyebrow">Live-Betrieb</p><h1 id="overview-title">Temperaturüberwachung</h1><p>Aktuelle Zustände, Grenzwerte und letzte Übertragungen der aktiven Geräte.</p></div>
+          <div class="heading-actions"><button class="secondary-button" id="overview-refresh" type="button">Aktualisieren</button><button class="primary-button" id="add-device" type="button" data-write>Gerät anlernen</button></div>
+        </header>
+        <div class="filter-bar">
+          <label>Gerät<select id="overview-device"></select></label>
+          <label>Messstelle<select id="overview-point"></select></label>
+          <div class="segmented" aria-label="Zeitraum"><button type="button" data-hours="6">6 h</button><button type="button" data-hours="24" class="is-active">24 h</button><button type="button" data-hours="72">3 T</button><button type="button" data-hours="168">7 T</button></div>
         </div>
-        <div class="workspace-controls">
-          <label>
-            <span>Messstelle</span>
-            <select id="point-select" aria-label="Messstelle auswählen" disabled>
-              <option>Keine Messstelle</option>
-            </select>
-          </label>
-          <div class="range-control" aria-label="Zeitraum auswählen">
-            <button type="button" data-hours="6">6 h</button>
-            <button type="button" data-hours="24" class="is-active">24 h</button>
-            <button type="button" data-hours="72">3 T</button>
-            <button type="button" data-hours="168">7 T</button>
-          </div>
-          <button id="settings-button" class="settings-button" type="button" disabled>
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.1a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.05 15a1.7 1.7 0 0 0-.6-1A1.7 1.7 0 0 0 2.35 13H2V9h.35a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.37 3.1l.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1-.6A1.7 1.7 0 0 0 9.71 2H14v.1a1.7 1.7 0 0 0 1.1 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1v4H21a1.7 1.7 0 0 0-1.6 1.1Z"/></svg>
-            Einstellungen
-          </button>
+        <div class="metric-line" id="overview-metrics"></div>
+        <div class="overview-grid">
+          <section class="chart-stage" aria-labelledby="temperature-chart-title"><div class="section-heading"><div><p class="eyebrow">Verlauf</p><h2 id="temperature-chart-title">Temperatur und Feuchte</h2></div><span id="chart-range">–</span></div><canvas id="overview-chart" height="340"></canvas><p class="chart-empty" id="overview-chart-empty" hidden>Für diesen Zeitraum liegen keine Messwerte vor.</p><div id="overview-chart-table" class="sr-only"></div></section>
+          <aside class="device-focus" id="device-focus" aria-label="Ausgewähltes Gerät"></aside>
+        </div>
+        <section class="data-section"><div class="section-heading"><div><p class="eyebrow">Flotte</p><h2>Gerätestatus</h2></div></div><div class="table-wrap"><table><thead><tr><th>Gerät</th><th>Temperatur</th><th>Alarm</th><th>Batterie</th><th>Signal</th><th>Letzte Verbindung</th></tr></thead><tbody id="device-table"></tbody></table></div></section>
+        <section class="data-section"><div class="section-heading"><div><p class="eyebrow">Messprotokoll</p><h2>Letzte Messwerte</h2></div></div><div class="table-wrap"><table><thead><tr><th>Zeitpunkt</th><th>Sequenz</th><th>Temperatur</th><th>Feuchte</th><th>Batterie</th></tr></thead><tbody id="recent-table"></tbody></table></div></section>
+      </section>
+
+      <section class="view" data-view="analysis" aria-labelledby="analysis-title" hidden>
+        <header class="view-heading"><div><p class="eyebrow">Systemanalyse</p><h1 id="analysis-title">Flottenzustand</h1><p>Messqualität, technische Ereignisse und Batterietrend in einem gemeinsamen Zeitraum.</p></div></header>
+        <div class="filter-bar"><label>Gerät<select id="analysis-device"><option value="">Gesamte Flotte</option></select></label><label>Messstelle<select id="analysis-point"><option value="">Alle Messstellen</option></select></label><div class="segmented" aria-label="Analysezeitraum"><button type="button" data-days="7">7 T</button><button type="button" data-days="30" class="is-active">30 T</button><button type="button" data-days="90">90 T</button></div></div>
+        <div class="metric-line" id="analysis-metrics"></div>
+        <div class="analysis-grid">
+          <section class="chart-stage wide"><div class="section-heading"><div><p class="eyebrow">Messwerte</p><h2>Temperatur und Feuchte</h2></div></div><canvas id="analysis-measurements" height="290"></canvas><div id="analysis-measurements-table" class="sr-only"></div></section>
+          <section class="chart-stage"><div class="section-heading"><div><p class="eyebrow">Fehlerbild</p><h2>Ereignisse nach Tag</h2></div></div><canvas id="analysis-events" height="260"></canvas><div id="analysis-events-table" class="sr-only"></div></section>
+          <section class="chart-stage"><div class="section-heading"><div><p class="eyebrow">Energie</p><h2>Batterietrend</h2></div><strong id="battery-eta">–</strong></div><canvas id="analysis-battery" height="260"></canvas><p class="support-copy" id="battery-note"></p><div id="analysis-battery-table" class="sr-only"></div></section>
+          <section class="chart-stage wide"><div class="section-heading"><div><p class="eyebrow">Verbindung</p><h2>Signal und Übertragungen</h2></div></div><canvas id="analysis-connections" height="250"></canvas><div id="analysis-connections-table" class="sr-only"></div></section>
         </div>
       </section>
 
-      <section class="metric-strip" aria-label="Aktuelle Messwerte">
-        <div class="primary-reading">
-          <span class="reading-label">Temperatur <i id="temperature-status" class="alarm-state">Keine Daten</i></span>
-          <strong id="temperature-value">–</strong>
-          <small>°C</small>
-          <em id="temperature-range">Grenzbereich nicht aktiv</em>
-        </div>
-        <div class="metric">
-          <span>Feuchte</span>
-          <strong id="humidity-value">–</strong>
-          <small>% RH</small>
-        </div>
-        <div class="metric">
-          <span>Minimum</span>
-          <strong id="minimum-value">–</strong>
-          <small>°C</small>
-        </div>
-        <div class="metric">
-          <span>Maximum</span>
-          <strong id="maximum-value">–</strong>
-          <small>°C</small>
-        </div>
-        <div class="metric metric-meta">
-          <span>Letzte Messung</span>
-          <strong id="latest-time">–</strong>
-          <small id="measurement-count">0 Messwerte</small>
-        </div>
+      <section class="view" data-view="events" aria-labelledby="events-title" hidden>
+        <header class="view-heading"><div><p class="eyebrow">Nachweisführung</p><h1 id="events-title">Abweichungen</h1><p>Ereignisse bestätigen, Korrekturmaßnahmen dokumentieren und nachvollziehbar prüfen.</p></div></header>
+        <div class="filter-bar"><label>Status<select id="event-state"><option value="all">Alle</option><option value="open">Offen</option><option value="acknowledged">Bestätigt</option><option value="action_recorded">Maßnahme erfasst</option><option value="verified">Geprüft</option><option value="resolved">Geschlossen</option></select></label><label>Gerät<select id="event-device"><option value="">Alle Geräte</option></select></label><label>Zeitraum<select id="event-days"><option value="7">7 Tage</option><option value="30" selected>30 Tage</option><option value="90">90 Tage</option><option value="366">366 Tage</option></select></label></div>
+        <section class="data-section"><div class="table-wrap"><table><thead><tr><th>Zeitpunkt</th><th>Gerät / Messstelle</th><th>Ereignis</th><th>Schwere</th><th>Status</th><th>Maßnahmen</th></tr></thead><tbody id="event-table"></tbody></table></div></section>
       </section>
 
-      <section class="chart-section" aria-labelledby="chart-title">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Verlauf</p>
-            <h2 id="chart-title">Temperatur und relative Feuchte</h2>
-          </div>
-          <div class="chart-legend" aria-label="Legende">
-            <span><i class="legend-temperature"></i>Temperatur</span>
-            <span><i class="legend-humidity"></i>Feuchte</span>
-            <span><i class="legend-range"></i>Grenzbereich</span>
-          </div>
+      <section class="view" data-view="exports" aria-labelledby="exports-title" hidden>
+        <header class="view-heading"><div><p class="eyebrow">Export Center</p><h1 id="exports-title">Prüfbare Nachweise</h1><p>Kompakte Behördenberichte oder erweiterte technische Datenpakete im Hintergrund erzeugen.</p></div></header>
+        <div class="export-layout">
+          <form class="editor-panel" id="export-form"><h2>Neuen Export anfordern</h2><div id="export-preflight" class="preflight"></div><div class="form-grid"><label>Von<input type="date" name="from" required></label><label>Bis<input type="date" name="to" required></label><label>Umfang<select name="mode"><option value="authority">Behörden-Nachweis (Kernumfang)</option><option value="extended">Erweiterter Export</option></select></label><label>Format<select name="format"><option value="pdf">PDF-Bericht</option><option value="xlsx">Excel-Arbeitsmappe (XLSX)</option><option value="csv">CSV-Paket (ZIP)</option></select></label><label>Rechtsprofil<select name="legal_profile"><option value="configured">Je Messstelle konfiguriert</option><option value="general_haccp">Allgemeiner DE/EU-HACCP-Nachweis</option><option value="quick_frozen">Tiefkühlmodul</option></select></label><span></span><label>Geräte (leer = alle)<select id="export-devices" multiple size="4" aria-describedby="export-selection-help"></select></label><label>Messstellen (leer = alle)<select id="export-points" multiple size="4" aria-describedby="export-selection-help"></select></label></div><p id="export-selection-help" class="form-note">Mit Strg/Cmd mehrere Einträge wählen. Messstellen werden auf die gewählte Geräteauswahl begrenzt.</p><fieldset id="extended-fields" hidden><legend>Technische Zusatzfelder</legend><div class="check-grid"><label><input type="checkbox" value="humidity"> Feuchte</label><label><input type="checkbox" value="battery"> Batterie</label><label><input type="checkbox" value="battery_forecast"> Batterieprognose</label><label><input type="checkbox" value="rssi"> Funksignal</label><label><input type="checkbox" value="wifi_timing"> WLAN-Zeit</label><label><input type="checkbox" value="firmware"> Firmware/Hardware</label><label><input type="checkbox" value="sequences"> Sequenzen</label><label><input type="checkbox" value="received_at"> Empfangszeiten</label><label><input type="checkbox" value="transmissions"> Übertragungen</label><label><input type="checkbox" value="configuration"> Konfiguration</label></div></fieldset><p class="form-note">Der Kernumfang enthält keine technischen Diagnose- oder Zugangsdaten. PDF fasst zusammen; XLSX und CSV enthalten die vollständigen Einzelwerte.</p><button class="primary-button" type="submit" data-write>Export einreihen</button></form>
+          <aside class="export-guidance"><p class="eyebrow">Datenminimierung</p><h2>So wenig wie nötig</h2><p>Der Behörden-Nachweis beschränkt sich auf Identität, Messauftrag, Temperaturwerte, Vollständigkeit, Abweichungen und Maßnahmen.</p><dl><div><dt>Dateien verfügbar</dt><dd>24 Stunden</dd></div><div><dt>Zeitraum je Datei</dt><dd>max. 366 Tage</dd></div><div><dt>Integrität</dt><dd>SHA-256</dd></div></dl></aside>
         </div>
-        <div class="chart-wrap">
-          <canvas id="measurement-chart" aria-label="Zeitlicher Verlauf von Temperatur und Feuchte"></canvas>
-          <div id="chart-tooltip" class="chart-tooltip" hidden></div>
-          <p id="chart-empty" class="empty-state" hidden>Noch keine Messwerte in diesem Zeitraum.</p>
-        </div>
+        <section class="data-section"><div class="section-heading"><div><p class="eyebrow">Aufträge</p><h2>Exportverlauf</h2></div><button class="secondary-button" id="exports-refresh" type="button">Aktualisieren</button></div><div class="table-wrap"><table><thead><tr><th>Erstellt</th><th>Modus</th><th>Format</th><th>Status</th><th>Ersteller</th><th>Prüfsumme / Download</th></tr></thead><tbody id="export-table"></tbody></table></div></section>
       </section>
 
-      <section class="detail-grid">
-        <div class="recent-panel">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Messprotokoll</p>
-              <h2>Letzte Messungen</h2>
-            </div>
-          </div>
-          <div class="table-scroll">
-            <table>
-              <thead>
-                <tr><th>Zeit</th><th>Temp.</th><th>Feuchte</th><th>Batterie</th><th>Seq.</th></tr>
-              </thead>
-              <tbody id="recent-table">
-                <tr><td colspan="5" class="table-empty">Noch keine Daten</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <aside class="diagnostic-panel" aria-labelledby="diagnostic-title">
-          <div class="section-heading">
-            <div>
-              <p class="eyebrow">Gerätediagnose</p>
-              <h2 id="diagnostic-title">Letzte Verbindung</h2>
-            </div>
-            <span id="device-state" class="state-badge">Unbekannt</span>
-          </div>
-          <dl id="diagnostic-list">
-            <div><dt>Firmware</dt><dd>–</dd></div>
-            <div><dt>Hardware</dt><dd>–</dd></div>
-            <div><dt>Signal</dt><dd id="diagnostic-signal">–</dd></div>
-            <div><dt>WLAN-Aufbau</dt><dd>–</dd></div>
-            <div><dt>Batterie</dt><dd id="diagnostic-battery">–</dd></div>
-            <div><dt>Boot-Zähler</dt><dd>–</dd></div>
-          </dl>
-        </aside>
+      <section class="view" data-view="users" aria-labelledby="users-title" hidden data-admin-only>
+        <header class="view-heading"><div><p class="eyebrow">Zugriff</p><h1 id="users-title">Benutzerverwaltung</h1><p>Rollen, Kontostatus und temporäre Zugangsdaten verwalten.</p></div><button class="primary-button" id="add-user" type="button">Benutzer hinzufügen</button></header>
+        <section class="data-section"><div class="table-wrap"><table><thead><tr><th>Name</th><th>Benutzername</th><th>Rolle</th><th>Status</th><th>Letzte Anmeldung</th><th>Aktionen</th></tr></thead><tbody id="user-table"></tbody></table></div></section>
       </section>
 
-      <footer class="workspace-foot">
-        <span id="fleet-summary">0 Geräte · 0 Messungen</span>
-        <span>Sensor Protocol V1</span>
-      </footer>
+      <section class="view" data-view="establishment" aria-labelledby="establishment-title" hidden data-admin-only>
+        <header class="view-heading"><div><p class="eyebrow">Nachweisprofil</p><h1 id="establishment-title">Betrieb und Messstellen</h1><p>Pflichtangaben, Verantwortlichkeiten und instrumentenbezogene Nachweise zentral pflegen.</p></div></header>
+        <form class="editor-panel establishment-form" id="establishment-form"><h2>Betriebsangaben</h2><div class="form-grid three"><label>Rechtlicher Name<input name="legal_name" required maxlength="200"></label><label>Handelsname<input name="trade_name" maxlength="200"></label><label>Behörden-/Registriernummer<input name="authority_reference" maxlength="160"></label><label>Adresse<input name="address_line1" required maxlength="200"></label><label>Adresszusatz<input name="address_line2" maxlength="200"></label><label>Postleitzahl<input name="postal_code" required maxlength="20"></label><label>Ort<input name="city" required maxlength="120"></label><label>Land<select name="country_code"><option value="DE">Deutschland</option><option value="AT">Österreich</option><option value="CH">Schweiz</option></select></label><label>Zeitzone<input name="timezone" value="Europe/Berlin" required></label><label>HACCP-verantwortlich<select name="haccp_responsible_user_id"></select></label><label>Aufbewahrung (Monate)<input name="general_retention_months" type="number" min="1" max="120" value="24" required></label></div><button class="primary-button" type="submit">Betrieb speichern</button></form>
+        <section class="data-section"><div class="section-heading"><div><p class="eyebrow">Versionierte Profile</p><h2>Messstellen-Compliance</h2></div></div><div class="table-wrap"><table><thead><tr><th>Gerät / Messstelle</th><th>Rechtsprofil</th><th>Klassifizierung</th><th>Verantwortlich</th><th>Instrument</th><th>Version</th></tr></thead><tbody id="compliance-table"></tbody></table></div></section>
+      </section>
     </main>
   </div>
 
-  <div id="settings-backdrop" class="inspector-backdrop" hidden></div>
-  <aside id="settings-inspector" class="settings-inspector" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
-    <form id="settings-form" novalidate>
-      <header class="inspector-head">
-        <div>
-          <p class="eyebrow">Gerätekonfiguration</p>
-          <h2 id="settings-title">Grenzwerte</h2>
-          <p id="settings-device">–</p>
-        </div>
-        <button id="settings-close" class="icon-button" type="button" aria-label="Einstellungen schließen">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
-        </button>
-      </header>
-
-      <div id="settings-message" class="form-message" role="alert" hidden></div>
-
-      <section class="form-section" aria-labelledby="temperature-settings-title">
-        <div class="form-section-head">
-          <div>
-            <h3 id="temperature-settings-title">Temperaturalarm</h3>
-            <p>Grenzen gelten geräteweit und werden von der Firmware übernommen.</p>
-          </div>
-          <label class="switch">
-            <input id="alarm-enabled" name="alarm_enabled" type="checkbox">
-            <span aria-hidden="true"></span>
-            <b>Aktiv</b>
-          </label>
-        </div>
-        <div class="field-pair">
-          <label>Minimum °C<input id="temperature-min" name="temperature_min_c" type="number" min="-100" max="150" step="0.1" inputmode="decimal"></label>
-          <label>Maximum °C<input id="temperature-max" name="temperature_max_c" type="number" min="-100" max="150" step="0.1" inputmode="decimal"></label>
-        </div>
-        <p class="field-error" data-error-for="alarm" hidden></p>
-      </section>
-
-      <section class="form-section" aria-labelledby="battery-settings-title">
-        <div class="form-section-head">
-          <div>
-            <h3 id="battery-settings-title">Batterieanzeige</h3>
-            <p>Unterhalb „Niedrig“ erscheint die Batterie leer, ab „Voll“ vollständig geladen.</p>
-          </div>
-        </div>
-        <div class="field-pair">
-          <label>Niedrig mV<input id="battery-low" name="battery_low_mv" type="number" min="0" max="10000" step="1" inputmode="numeric"></label>
-          <label>Voll mV<input id="battery-full" name="battery_full_mv" type="number" min="0" max="10000" step="1" inputmode="numeric"></label>
-        </div>
-        <p class="field-error" data-error-for="battery" hidden></p>
-      </section>
-
-      <p class="settings-note">Diese Grenzwerte bereiten Statusanzeigen vor. Es werden noch keine Alarmereignisse oder Benachrichtigungen erzeugt.</p>
-
-      <footer class="inspector-actions">
-        <button id="settings-cancel" class="button-secondary" type="button">Abbrechen</button>
-        <button id="settings-save" class="button-primary" type="submit">Änderungen speichern</button>
-      </footer>
-    </form>
-  </aside>
-
-  <div id="enrollment-backdrop" class="inspector-backdrop" hidden></div>
-  <aside id="enrollment-inspector" class="settings-inspector enrollment-inspector" role="dialog" aria-modal="true" aria-labelledby="enrollment-title" hidden>
-    <form id="enrollment-form" novalidate>
-      <header class="inspector-head">
-        <div>
-          <p class="eyebrow">Ersteinrichtung</p>
-          <h2 id="enrollment-title">Gerät anlernen</h2>
-          <p>Identität und einmalige Zugangsdaten vorbereiten.</p>
-        </div>
-        <button id="enrollment-close" class="icon-button" type="button" aria-label="Geräteanlage schließen">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
-        </button>
-      </header>
-
-      <div id="enrollment-message" class="form-message" role="alert" hidden></div>
-
-      <div id="enrollment-fields">
-        <section class="form-section" aria-labelledby="identity-title">
-          <div class="form-section-head">
-            <div>
-              <h3 id="identity-title">Geräteidentität</h3>
-              <p>Die UID kann automatisch erzeugt oder für eine vorhandene Gerätekennzeichnung festgelegt werden.</p>
-            </div>
-          </div>
-          <div class="field-stack">
-            <label>Bezeichnung<input id="enrollment-name" name="name" type="text" maxlength="160" autocomplete="off" placeholder="Kühltheke Ausgabe" required></label>
-            <label>Geräte-UID <small>optional</small><input id="enrollment-uid" name="device_uid" type="text" maxlength="64" autocomplete="off" spellcheck="false" placeholder="wird automatisch erzeugt" pattern="[a-z0-9][a-z0-9-]{2,63}"></label>
-          </div>
-          <p class="field-error" data-enrollment-error="identity" hidden></p>
-        </section>
-
-        <section class="form-section" aria-labelledby="point-title">
-          <div class="form-section-head">
-            <div>
-              <h3 id="point-title">Erste Messstelle</h3>
-              <p>Diese Kennung verwendet die Firmware für jede Temperaturmessung.</p>
-            </div>
-          </div>
-          <div class="field-pair">
-            <label>Name<input id="enrollment-point-name" name="point_name" type="text" maxlength="160" placeholder="Innenraum" required></label>
-            <label>Kennung<input id="enrollment-point-code" name="point_code" type="text" maxlength="64" spellcheck="false" placeholder="counter-1" required></label>
-            <label>Ort<input id="enrollment-location" name="location" type="text" maxlength="255" placeholder="Ausgabe"></label>
-            <label>Sensortyp<input id="enrollment-sensor" name="sensor_type" type="text" maxlength="64" value="SHT45" required></label>
-          </div>
-          <p class="field-error" data-enrollment-error="measurement_point" hidden></p>
-        </section>
-
-        <section class="form-section" aria-labelledby="enrollment-limits-title">
-          <div class="form-section-head">
-            <div>
-              <h3 id="enrollment-limits-title">Startkonfiguration</h3>
-              <p>Die Temperaturgrenzen werden nach dem ersten HTTPS-Kontakt von der Firmware übernommen.</p>
-            </div>
-            <label class="switch">
-              <input id="enrollment-alarm-enabled" type="checkbox" checked>
-              <span aria-hidden="true"></span>
-              <b>Aktiv</b>
-            </label>
-          </div>
-          <div class="field-pair">
-            <label>Minimum °C<input id="enrollment-temperature-min" type="number" min="-100" max="150" step="0.1" value="2" inputmode="decimal"></label>
-            <label>Maximum °C<input id="enrollment-temperature-max" type="number" min="-100" max="150" step="0.1" value="7" inputmode="decimal"></label>
-            <label>Batterie niedrig mV<input id="enrollment-battery-low" type="number" min="0" max="10000" step="1" value="5600" inputmode="numeric"></label>
-            <label>Batterie voll mV<input id="enrollment-battery-full" type="number" min="0" max="10000" step="1" value="6000" inputmode="numeric"></label>
-          </div>
-          <p class="field-error" data-enrollment-error="settings" hidden></p>
-        </section>
-      </div>
-
-      <section id="setup-result" class="setup-result" aria-labelledby="setup-result-title" hidden>
-        <div class="setup-success-mark" aria-hidden="true">✓</div>
-        <p class="eyebrow">Bereit zur Übertragung</p>
-        <h3 id="setup-result-title">Zugangsdaten nur jetzt sichern</h3>
-        <p>Der Geräteschlüssel kann später nicht erneut angezeigt werden. Verbinden Sie sich mit dem Setup-WLAN des Sensors und öffnen Sie <strong>http://192.168.4.1</strong>.</p>
-        <dl class="setup-values">
-          <div><dt>Server</dt><dd><code id="setup-api-url">–</code><button type="button" data-copy="api_base_url">Kopieren</button></dd></div>
-          <div><dt>Geräte-UID</dt><dd><code id="setup-device-uid">–</code><button type="button" data-copy="device_uid">Kopieren</button></dd></div>
-          <div><dt>Messstelle</dt><dd><code id="setup-point-code">–</code><button type="button" data-copy="measurement_point">Kopieren</button></dd></div>
-          <div class="setup-secret"><dt>Geräteschlüssel</dt><dd><code id="setup-device-key">–</code><button type="button" data-copy="device_key">Kopieren</button></dd></div>
-        </dl>
-        <button id="copy-setup-package" class="button-secondary copy-package" type="button">Komplettes Setup-Paket kopieren</button>
-        <ol class="setup-steps">
-          <li>Setup-WLAN <strong>OpenHACCP-…</strong> mit dem Passwort vom Geräteetikett öffnen.</li>
-          <li>WLAN-Zugang, Server und diese Gerätewerte im Portal eintragen.</li>
-          <li>Das Gerät prüft HTTPS und Zugangsdaten, speichert erst dann und startet neu.</li>
-        </ol>
-      </section>
-
-      <footer class="inspector-actions">
-        <button id="enrollment-cancel" class="button-secondary" type="button">Abbrechen</button>
-        <button id="enrollment-submit" class="button-primary" type="submit">Gerät vorbereiten</button>
-        <button id="enrollment-done" class="button-primary" type="button" hidden>Fertig – Daten gesichert</button>
-      </footer>
-    </form>
-  </aside>
+  <dialog id="app-dialog" class="app-dialog"><div class="dialog-frame"><header><div><p class="eyebrow" id="dialog-eyebrow">Bearbeiten</p><h2 id="dialog-title">Eintrag</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Dialog schließen">×</button></header><div id="dialog-content"></div></div></dialog>
+  <script type="module" src="/assets/app.js?v=20260809-2"></script>
 </body>
 </html>

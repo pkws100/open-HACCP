@@ -108,7 +108,8 @@ All fields below are required. Maximum `measurements` length is the smaller of t
     "battery_mv": 6127,
     "rssi_dbm": -58,
     "wifi_connect_ms": 1834,
-    "boot_count": 42
+    "boot_count": 42,
+    "errors": ["RTC_SYNC_RETRIED"]
   },
   "measurements": [{
     "measurement_point": "fridge-1",
@@ -131,6 +132,8 @@ Required diagnostic ranges:
 | RSSI | -120..0 | dBm |
 | Wi-Fi connect | 0..120000 | ms |
 | boot count | 0..4294967295 | count |
+
+An optional `errors` array may contain at most 20 unique stable codes matching `[A-Z0-9_.-]{1,64}`. Use it only for durable machine-readable conditions such as queue pressure, sensor recovery or repeated UTC synchronization failure. Never include SSIDs, passwords, credential-bearing URLs, device keys, request bodies or personal data. Heartbeat accepts the same optional top-level `errors` array. Omitting it remains fully compatible with V1.
 
 ## Processing the batch response
 

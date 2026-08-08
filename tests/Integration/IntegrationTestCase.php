@@ -28,6 +28,8 @@ abstract class IntegrationTestCase extends TestCase
     protected MemoryLogger $logger;
     protected string $deviceUid = 'haccp-test-0001';
     protected string $deviceKey = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    protected string $sessionCookie = '';
+    protected string $csrfToken = '';
 
     protected function setUp(): void
     {
@@ -37,6 +39,7 @@ abstract class IntegrationTestCase extends TestCase
         $this->logger = new MemoryLogger();
         $this->app = ApplicationFactory::create($this->config, $this->pdo, $this->logger);
         $this->createFixtureDevice();
+        $this->loginDashboard();
     }
 
     protected function request(string $method, string $path, ?array $payload = null, ?string $key = null): ResponseInterface
@@ -65,10 +68,12 @@ abstract class IntegrationTestCase extends TestCase
     {
         $request = (new ServerRequestFactory())->createServerRequest($method, $path);
         if ($authenticated) {
-            $request = $request->withHeader(
-                'Authorization',
-                'Basic ' . base64_encode($this->config->dashboardUsername . ':' . $this->config->dashboardPassword),
-            );
+            $request = $request
+                ->withHeader('Cookie', 'haccp_session=' . $this->sessionCookie)
+                ->withCookieParams(['haccp_session' => $this->sessionCookie]);
+            if (!in_array(strtoupper($method), ['GET', 'HEAD', 'OPTIONS'], true)) {
+                $request = $request->withHeader('X-CSRF-Token', $this->csrfToken);
+            }
         }
         if ($payload !== null) {
             $request = $request
@@ -154,9 +159,37 @@ abstract class IntegrationTestCase extends TestCase
     private function resetDatabase(): void
     {
         $this->pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
-        foreach (['measurements', 'device_transmissions', 'device_configs', 'measurement_points', 'devices'] as $table) {
+        foreach ([
+            'event_verifications', 'corrective_action_revisions', 'corrective_actions', 'compliance_events',
+            'export_jobs', 'audit_log', 'audit_chain_state', 'battery_cycles',
+            'measurement_point_compliance_configs', 'establishments', 'user_sessions', 'login_attempts',
+            'users', 'measurements', 'device_transmissions', 'device_configs', 'measurement_points', 'devices',
+        ] as $table) {
             $this->pdo->exec('TRUNCATE TABLE ' . $table);
         }
+        $now = (new Clock())->database((new Clock())->now());
+        $this->pdo->prepare("INSERT INTO audit_chain_state (id, head_hash, updated_at) VALUES (1, :hash, :now)")
+            ->execute(['hash' => str_repeat('0', 64), 'now' => $now]);
+        $this->pdo->prepare("INSERT INTO establishments
+            (id, legal_name, address_line1, postal_code, city, country_code, timezone, general_retention_months, created_at, updated_at)
+            VALUES (1, '', '', '', '', 'DE', 'Europe/Berlin', 24, :now, :now2)")
+            ->execute(['now' => $now, 'now2' => $now]);
         $this->pdo->exec('SET FOREIGN_KEY_CHECKS = 1');
+    }
+
+    private function loginDashboard(): void
+    {
+        $request = (new ServerRequestFactory())->createServerRequest('POST', '/api/v1/auth/login')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody((new StreamFactory())->createStream(json_encode([
+                'username' => $this->config->dashboardUsername,
+                'password' => $this->config->dashboardPassword,
+            ], JSON_THROW_ON_ERROR)));
+        $response = $this->app->handle($request);
+        self::assertSame(200, $response->getStatusCode(), (string) $response->getBody() . "\n" . json_encode($this->logger->records));
+        $cookie = $response->getHeaderLine('Set-Cookie');
+        preg_match('/haccp_session=([^;]+)/', $cookie, $matches);
+        $this->sessionCookie = rawurldecode($matches[1] ?? '');
+        $this->csrfToken = $this->json($response)['csrf_token'];
     }
 }

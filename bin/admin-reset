@@ -1,0 +1,54 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Haccp\Config;
+use Haccp\Repository\AuthRepository;
+use Haccp\Service\AuditService;
+use Haccp\Service\AuthService;
+use Haccp\Support\Clock;
+use Haccp\Support\Database;
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+$username = $argv[1] ?? '';
+if (str_starts_with($username, '--username=')) {
+    $username = substr($username, strlen('--username='));
+}
+$username = mb_strtolower(trim($username));
+if ($username === '') {
+    fwrite(STDERR, "Usage: bin/admin-reset --username=<username>\n");
+    exit(2);
+}
+$config = Config::fromEnvironment();
+$pdo = Database::connect($config);
+$repository = new AuthRepository($pdo);
+$user = $repository->userByUsername($username);
+$clock = new Clock();
+$audit = new AuditService($pdo, $clock, $config->auditLogKey);
+$auth = new AuthService($repository, $audit, $clock);
+$temporary = 'Hc!' . rtrim(strtr(base64_encode(random_bytes(15)), '+/', 'AZ'), '=');
+$now = $clock->database($clock->now());
+$passwordHash = $auth->hashPassword($temporary);
+if ($user === null) {
+    if (preg_match('/^[a-z0-9][a-z0-9._-]{2,79}$/', $username) !== 1) {
+        fwrite(STDERR, "Invalid administrator username.\n");
+        exit(2);
+    }
+    $id = $repository->createUser([
+        'username' => $username,
+        'display_name' => 'Wiederherstellungsadministrator',
+        'email' => null,
+        'role' => 'administrator',
+        'password_hash' => $passwordHash,
+        'password_change_required' => 1,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+} else {
+    $id = (int) $user['id'];
+    $repository->recoverAdministrator($id, $passwordHash, $now);
+}
+$audit->append('user.administrator_recovered_cli', null, 'user', (string) $id);
+fwrite(STDOUT, "Temporary password (shown once): {$temporary}\n");

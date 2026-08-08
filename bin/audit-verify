@@ -1,0 +1,16 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Haccp\Config;
+use Haccp\Service\AuditService;
+use Haccp\Support\Clock;
+use Haccp\Support\Database;
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+$config = Config::fromEnvironment();
+$result = (new AuditService(Database::connect($config), new Clock(), $config->auditLogKey))->verify();
+fwrite(STDOUT, json_encode($result, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT) . PHP_EOL);
+exit($result['valid'] ? 0 : 1);

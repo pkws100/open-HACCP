@@ -82,7 +82,20 @@ final readonly class MeasurementPointRepository
               :humidity_min_rh, :humidity_max_rh, :created_at, :updated_at)',
         );
         $statement->execute($values);
+        $id = (int) $this->pdo->lastInsertId();
+        $compliance = $this->pdo->prepare(
+            "INSERT INTO measurement_point_compliance_configs
+             (measurement_point_id, config_version, legal_profile, control_classification, monitoring_purpose,
+              humidity_is_critical, retention_months, conformity_status, effective_from, created_at)
+             VALUES (:measurement_point_id, 1, 'general_haccp', 'GHP', 'Temperaturüberwachung',
+                     0, 24, 'not_documented', :effective_from, :created_at)",
+        );
+        $compliance->execute([
+            'measurement_point_id' => $id,
+            'effective_from' => $values['created_at'],
+            'created_at' => $values['created_at'],
+        ]);
 
-        return (int) $this->pdo->lastInsertId();
+        return $id;
     }
 }

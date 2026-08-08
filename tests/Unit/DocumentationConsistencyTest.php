@@ -25,6 +25,14 @@ final class DocumentationConsistencyTest extends TestCase
         self::assertArrayHasKey('/api/v1/dashboard/overview', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/dashboard/devices', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/dashboard/devices/{device_uid}/settings', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/auth/login', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/analysis', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/events', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/exports', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/users', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/establishment', $openApi['paths']);
+        self::assertArrayHasKey('errors', $schema['$defs']['diagnostics']['properties']);
+        self::assertSame(20, $schema['$defs']['diagnostics']['properties']['errors']['maxItems']);
         self::assertSame('https://haccp.pow24.org', $openApi['servers'][0]['url']);
         self::assertStringContainsString('Only then mark that specific local record acknowledged', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
         self::assertStringContainsString('establish HTTPS and verify CA chain + hostname', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
@@ -34,5 +42,7 @@ final class DocumentationConsistencyTest extends TestCase
         self::assertStringContainsString('DEVICE_CONFIG_VERSION_CONFLICT', (string) file_get_contents($root . '/docs/SENSOR_PROTOCOL_V1.md'));
         self::assertStringContainsString('WPA2-protected Wi-Fi SoftAP', (string) file_get_contents($root . '/docs/DEVICE_PROVISIONING.md'));
         self::assertStringContainsString('plaintext device key exists only', $openApi['paths']['/api/v1/dashboard/devices']['post']['description']);
+        self::assertStringContainsString('Behörden-Nachweis (Kernumfang)', (string) file_get_contents($root . '/docs/EXPORTS_AND_COMPLIANCE.md'));
+        self::assertStringContainsString('Firmware handoff ready: **YES**', (string) file_get_contents($root . '/README.md'));
     }
 }

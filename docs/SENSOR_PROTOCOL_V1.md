@@ -47,7 +47,8 @@ These limits detect technical errors and are not HACCP alarm thresholds. Batch m
     "battery_mv": 6127,
     "rssi_dbm": -58,
     "wifi_connect_ms": 1834,
-    "boot_count": 42
+    "boot_count": 42,
+    "errors": ["RTC_SYNC_RETRIED"]
   },
   "measurements": [{
     "measurement_point": "fridge-1",
@@ -118,7 +119,8 @@ Sequences increase monotonically per measurement point. The database identity is
 - A retry with the same normalized timestamp, temperature, humidity, and battery returns `duplicate` without inserting.
 - The same identity with different data returns `SEQUENCE_CONFLICT`; the stored record is never changed.
 - `batch_id` is diagnostic and need not be a UUID. Every HTTP retry is stored as a separate transmission attempt.
-- `sequence_gaps` reports newly observed missing ranges. No alarm is generated.
+- `diagnostics.errors` is optional, additive, unique and limited to 20 stable codes matching `[A-Z0-9_.-]{1,64}`. It is for durable firmware conditions, not free text or secrets. Existing V1 requests without it remain valid.
+- `sequence_gaps` reports newly observed missing ranges. Firmware need not alarm or retransmit solely because of this array; the backend may retain a data-quality event for operator review.
 
 ## Config and heartbeat
 
@@ -126,9 +128,11 @@ Sequences increase monotonically per measurement point. The database identity is
 
 An authenticated operator may create a new version through the separate dashboard settings API. Firmware therefore treats a higher `config_version` as an atomic replacement and receives reporting intervals plus the updated `alarm.enabled`, `temperature_min_c`, and `temperature_max_c`. The normal range is inclusive. Dashboard battery display thresholds are intentionally not part of Sensor Protocol V1 and do not appear in the firmware config response.
 
-`POST /api/v1/device/heartbeat` requires protocol version, firmware and hardware versions, battery, RSSI, Wi-Fi connection duration, and boot counter. It updates device status and creates a diagnostic transmission without measurements. Its successful response also contains the full current `configuration`, so a wake cycle can report diagnostics and update scheduling in one HTTPS exchange.
+`POST /api/v1/device/heartbeat` requires protocol version, firmware and hardware versions, battery, RSSI, Wi-Fi connection duration, and boot counter. Its optional top-level `errors` array follows the same code rules. It updates device status and creates a diagnostic transmission without measurements. Its successful response also contains the full current `configuration`, so a wake cycle can report diagnostics and update scheduling in one HTTPS exchange.
 
 Only operational, non-secret configuration is returned. WLAN credentials, device keys, setup passwords, and other provisioning secrets are never included in config, heartbeat, or batch responses. `GET /config` remains the authoritative fallback and explicit configuration check.
+
+Events, corrective actions, analyses and exports are dashboard functions and do not alter Sensor Protocol V1. The server derives state events for temperature, low battery, weak RSSI and offline devices, plus discrete rejections, gaps and firmware codes. ACK/rejection correlation remains the only authority for deleting firmware queue records.
 
 ## HTTP and error codes
 
@@ -155,11 +159,11 @@ The normative machine-readable descriptions are [`protocol-v1.schema.json`](prot
 
 ## Operator settings outside the firmware protocol
 
-`POST /api/v1/dashboard/devices` is the Basic-authenticated operator onboarding endpoint. It atomically creates a device, its first measurement point, and config version 1. The optional UID is generated when absent. Its non-cacheable HTTP 201 response contains a 32-random-byte device key encoded as 64 hexadecimal characters exactly once; only the peppered HMAC is retained server-side. Invalid input returns `INVALID_DEVICE_PROVISIONING`, and a requested duplicate UID returns `DEVICE_UID_ALREADY_EXISTS`.
+`POST /api/v1/dashboard/devices` is the session- and CSRF-protected administrator/operator onboarding endpoint. It atomically creates a device, its first measurement point, and config version 1. The optional UID is generated when absent. Its non-cacheable HTTP 201 response contains a 32-random-byte device key encoded as 64 hexadecimal characters exactly once; only the peppered HMAC is retained server-side. Invalid input returns `INVALID_DEVICE_PROVISIONING`, and a requested duplicate UID returns `DEVICE_UID_ALREADY_EXISTS`.
 
 The resulting setup package is transferred through the physical sensor's WPA2-protected local SoftAP portal. That local portal, site WLAN credentials, captive-portal behavior, recovery button, and NVS storage are outside Sensor Protocol V1; see [`DEVICE_PROVISIONING.md`](DEVICE_PROVISIONING.md). Normal device traffic begins only after the firmware verifies HTTPS and authenticates the config request.
 
-`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses Dashboard Basic authentication and optimistic concurrency through `expected_config_version`. It is an operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature, battery, or schedule ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
+`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses the database-backed dashboard session, a CSRF header and optimistic concurrency through `expected_config_version`. It is an administrator/operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature, battery, or schedule ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
 
 The optional `schedule` object changes the device default measurement interval, upload interval, and a complete list of point-specific overrides. Omitting it preserves the preceding schedule. Every listed point must currently be active for that device; duplicate or unknown point codes are rejected. An empty `measurement_points` list removes all overrides so every point inherits the default.
 

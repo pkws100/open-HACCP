@@ -1,0 +1,39 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use Haccp\Config;
+use Haccp\Repository\AuthRepository;
+use Haccp\Repository\EventRepository;
+use Haccp\Repository\ExportRepository;
+use Haccp\Repository\ComplianceRepository;
+use Haccp\Service\AuditService;
+use Haccp\Service\ComplianceEventService;
+use Haccp\Service\ExportGenerator;
+use Haccp\Service\WorkerService;
+use Haccp\Support\Clock;
+use Haccp\Support\Database;
+use Haccp\Support\LoggerFactory;
+
+require dirname(__DIR__) . '/vendor/autoload.php';
+
+$config = Config::fromEnvironment();
+$pdo = Database::connect($config);
+$clock = new Clock();
+$logger = LoggerFactory::create($config->environment);
+$exports = new ExportRepository($pdo);
+$audit = new AuditService($pdo, $clock, $config->auditLogKey);
+$worker = new WorkerService(
+    $exports,
+    new ExportGenerator($exports, new ComplianceRepository($pdo), $audit, $clock, $config->exportPath),
+    new ComplianceEventService($pdo, new EventRepository($pdo), $clock),
+    new AuthRepository($pdo),
+    $clock,
+    $logger,
+);
+
+while (true) {
+    $worked = $worker->tick();
+    sleep($worked ? 1 : 10);
+}

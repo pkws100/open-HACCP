@@ -20,6 +20,7 @@ final readonly class HeartbeatService
         private DeviceRepository $devices,
         private TransmissionRepository $transmissions,
         private DeviceConfigService $configService,
+        private ComplianceEventService $eventService,
         private Clock $clock,
     ) {
     }
@@ -34,7 +35,7 @@ final readonly class HeartbeatService
 
         $this->pdo->beginTransaction();
         try {
-            $this->transmissions->create([
+            $transmissionId = $this->transmissions->create([
                 'device_id' => $device->id,
                 'transmission_type' => 'heartbeat',
                 'request_id' => $requestId,
@@ -50,6 +51,7 @@ final readonly class HeartbeatService
                 'accepted_count' => 0,
                 'duplicate_count' => 0,
                 'rejected_count' => 0,
+                'diagnostic_errors_json' => $heartbeat['errors'] === [] ? null : json_encode($heartbeat['errors'], JSON_THROW_ON_ERROR),
                 'remote_ip' => $remoteIp,
                 'created_at' => $databaseNow,
             ]);
@@ -61,6 +63,15 @@ final readonly class HeartbeatService
                 (int) $heartbeat['rssi_dbm'],
                 $remoteIp,
                 $databaseNow,
+            );
+            $this->eventService->diagnostics(
+                $device->id,
+                $transmissionId,
+                (int) $heartbeat['battery_mv'],
+                (int) $heartbeat['rssi_dbm'],
+                $configuration,
+                $databaseNow,
+                $heartbeat['errors'],
             );
             $this->pdo->commit();
         } catch (Throwable $exception) {

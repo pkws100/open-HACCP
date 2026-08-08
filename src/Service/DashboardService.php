@@ -125,6 +125,7 @@ final readonly class DashboardService
         $minimum = $this->float($row['temperature_min_c'] ?? null);
         $maximum = $this->float($row['temperature_max_c'] ?? null);
         $enabled = (bool) ($row['alarm_enabled'] ?? false);
+        $latestMeasurements = $this->dashboard->latestMeasurementsForDevice((int) $row['id']);
         $alarmStates = array_map(
             fn (array $measurement): string => $this->status->alarm(
                 $enabled,
@@ -132,8 +133,17 @@ final readonly class DashboardService
                 $maximum,
                 $this->float($measurement['temperature_c']),
             ),
-            $this->dashboard->latestMeasurementsForDevice((int) $row['id']),
+            $latestMeasurements,
         );
+        $latestMeasurement = null;
+        foreach ($latestMeasurements as $measurement) {
+            if ($measurement['temperature_c'] === null) {
+                continue;
+            }
+            if ($latestMeasurement === null || (string) $measurement['measured_at'] > (string) $latestMeasurement['measured_at']) {
+                $latestMeasurement = $measurement;
+            }
+        }
 
         return [
             'device_uid' => $row['device_uid'],
@@ -144,6 +154,8 @@ final readonly class DashboardService
             'last_seen_at' => $this->timestamp($row['last_seen_at']),
             'last_rssi_dbm' => $rssiDbm,
             'last_battery_mv' => $batteryMv,
+            'latest_temperature_c' => $this->float($latestMeasurement['temperature_c'] ?? null),
+            'latest_temperature_measured_at' => $this->timestamp($latestMeasurement['measured_at'] ?? null),
             'measurement_point_count' => isset($row['measurement_point_count']) ? (int) $row['measurement_point_count'] : null,
             'battery' => [
                 'millivolts' => $batteryMv,
@@ -209,6 +221,7 @@ final readonly class DashboardService
     private function point(array $row): array
     {
         return [
+            'id' => isset($row['id']) ? (int) $row['id'] : null,
             'code' => $row['code'],
             'name' => $row['name'],
             'sensor_type' => $row['sensor_type'],

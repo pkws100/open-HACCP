@@ -43,15 +43,17 @@ final readonly class DemoDeviceProvisioner
             if (!is_string($key) || preg_match('/^[a-f0-9]{64}$/', $key) !== 1) {
                 $key = $this->keys->generate();
             }
-            $now = $this->clock->database($this->clock->now());
+            $nowObject = $this->clock->now();
+            $now = $this->clock->database($nowObject);
+            $seededAt = $this->clock->database($nowObject->modify('-2 hours'));
 
             $this->pdo->beginTransaction();
             try {
                 $device = $this->devices->findByUid($uid);
                 $created = $device === null;
                 if ($created) {
-                    $deviceId = $this->devices->create($uid, (string) $profile['name'], $this->keys->hash($key), $now);
-                    $this->configs->createDefault($deviceId, $now);
+                    $deviceId = $this->devices->create($uid, (string) $profile['name'], $this->keys->hash($key), $seededAt);
+                    $this->configs->createDefault($deviceId, $seededAt);
                 } else {
                     $deviceId = $device->id;
                     $this->devices->activateAndRename($deviceId, (string) $profile['name'], $now);
@@ -71,7 +73,7 @@ final readonly class DemoDeviceProvisioner
                     'temperature_max_c' => null,
                     'humidity_min_rh' => null,
                     'humidity_max_rh' => null,
-                    'created_at' => $now,
+                    'created_at' => $created ? $seededAt : $now,
                     'updated_at' => $now,
                 ];
                 if ($point === null) {
@@ -95,7 +97,7 @@ final readonly class DemoDeviceProvisioner
                         'temperature_max_c' => $profile['temperature_max_c'],
                         'battery_low_mv' => 5600,
                         'battery_full_mv' => 6000,
-                    ], $now);
+                    ], $created ? $seededAt : $now);
                 }
 
                 $this->pdo->commit();

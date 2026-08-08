@@ -52,6 +52,19 @@ final class ProtocolValidatorTest extends TestCase
         self::assertSame('INVALID_HUMIDITY', $result['code']);
     }
 
+    public function testAcceptsStableDiagnosticCodesAndRejectsSecretLikeFreeText(): void
+    {
+        $sent = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        $batch = $this->batch($sent);
+        $batch->diagnostics->errors = ['RTC_SYNC_RETRIED', 'SENSOR.RECOVERED'];
+        $validated = $this->validator->validateBatchEnvelope($batch);
+        self::assertSame(['RTC_SYNC_RETRIED', 'SENSOR.RECOVERED'], $validated['diagnostics']['errors']);
+
+        $batch->diagnostics->errors = ['WiFi password was invalid'];
+        $this->expectException(\Haccp\Api\ApiException::class);
+        $this->validator->validateBatchEnvelope($batch);
+    }
+
     private function batch(\DateTimeImmutable $sent): \stdClass
     {
         return json_decode(json_encode([

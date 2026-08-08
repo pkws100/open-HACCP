@@ -14,10 +14,13 @@ services:
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD_FILE: /run/secrets/database_password
       DEVICE_API_KEY_PEPPER_FILE: /run/secrets/device_api_key_pepper
+      AUDIT_LOG_KEY_FILE: /run/secrets/audit_log_key
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD_FILE: /run/secrets/dashboard_password
+      EXPORT_PATH: /var/lib/haccp-exports
     secrets:
       - device_api_key_pepper
+      - audit_log_key
       - dashboard_password
       - database_password
     depends_on:
@@ -30,6 +33,43 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    restart: unless-stopped
+    volumes:
+      - haccp-export-data:/var/lib/haccp-exports
+
+  worker:
+    build:
+      context: .
+    user: "www-data:www-data"
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_DEBUG: "false"
+      APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
+      MIGRATE_ON_START: "false"
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-https://haccp.pow24.org}
+      DB_HOST: db
+      DB_PORT: ${DB_PORT:-3306}
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD_FILE: /run/secrets/database_password
+      DEVICE_API_KEY_PEPPER_FILE: /run/secrets/device_api_key_pepper
+      AUDIT_LOG_KEY_FILE: /run/secrets/audit_log_key
+      DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
+      DASHBOARD_PASSWORD_FILE: /run/secrets/dashboard_password
+      EXPORT_PATH: /var/lib/haccp-exports
+    command: ["php", "bin/worker"]
+    depends_on:
+      app:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    volumes:
+      - haccp-export-data:/var/lib/haccp-exports
+    secrets:
+      - device_api_key_pepper
+      - audit_log_key
+      - dashboard_password
+      - database_password
     restart: unless-stopped
 
   demo:
@@ -45,6 +85,7 @@ services:
       DB_USERNAME: ${DB_USERNAME}
       DB_PASSWORD_FILE: /run/secrets/database_password
       DEVICE_API_KEY_PEPPER_FILE: /run/secrets/device_api_key_pepper
+      AUDIT_LOG_KEY_FILE: /run/secrets/audit_log_key
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD_FILE: /run/secrets/dashboard_password
       MIGRATE_ON_START: "false"
@@ -62,6 +103,7 @@ services:
       - haccp-demo-state:/var/lib/haccp-demo
     secrets:
       - device_api_key_pepper
+      - audit_log_key
       - dashboard_password
       - database_password
     restart: unless-stopped
@@ -127,7 +169,8 @@ services:
       DB_DATABASE: haccp_test
       DB_USERNAME: haccp_test
       DB_PASSWORD: haccp_test_password
-      DEVICE_API_KEY_PEPPER: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      DEVICE_API_KEY_PEPPER: a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4e5f60718a1b2c3d4e5f60718
+      AUDIT_LOG_KEY: 13579bdf2468ace013579bdf2468ace013579bdf2468ace013579bdf2468ace0
       DASHBOARD_USERNAME: haccp-test
       DASHBOARD_PASSWORD: haccp-test-dashboard-password
       PUBLIC_API_BASE_URL: https://haccp.pow24.org
@@ -138,10 +181,13 @@ services:
 volumes:
   haccp-db-data:
   haccp-demo-state:
+  haccp-export-data:
 
 secrets:
   device_api_key_pepper:
     environment: DEVICE_API_KEY_PEPPER
+  audit_log_key:
+    environment: AUDIT_LOG_KEY
   dashboard_password:
     environment: DASHBOARD_PASSWORD
   database_password:

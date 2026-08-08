@@ -31,7 +31,7 @@ final readonly class MeasurementRepository
     }
 
     /** @param array<string, mixed> $measurement */
-    public function insert(int $deviceId, int $measurementPointId, array $measurement, string $receivedAt): void
+    public function insert(int $deviceId, int $measurementPointId, array $measurement, string $receivedAt): int
     {
         $statement = $this->pdo->prepare(
             'INSERT INTO measurements
@@ -52,6 +52,8 @@ final readonly class MeasurementRepository
             'battery_mv' => $measurement['battery_mv'],
             'created_at' => $receivedAt,
         ]);
+
+        return (int) $this->pdo->lastInsertId();
     }
 
     public function maxSequence(int $deviceId, int $measurementPointId): ?int

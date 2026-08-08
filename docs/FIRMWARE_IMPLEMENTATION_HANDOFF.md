@@ -77,7 +77,7 @@ Each pending measurement contains and uploads:
 - the logical measurement point and its independent sequence;
 - the original UTC `measured_at`.
 
-Connection diagnostics contain the latest battery voltage, Wi-Fi `rssi_dbm`, connection duration, and boot count. RSSI belongs to the batch/heartbeat diagnostics because it only exists while WLAN is active; the backend stores it with the transmission and exposes it on the dashboard. Firmware/hardware versions are sent on every connection. Numeric range checks happen before queue insertion and again before serialization.
+Connection diagnostics contain the latest battery voltage, Wi-Fi `rssi_dbm`, connection duration, and boot count. RSSI belongs to the batch/heartbeat diagnostics because it only exists while WLAN is active; the backend stores it with the transmission and exposes it on the dashboard. Firmware/hardware versions are sent on every connection. Numeric range checks happen before queue insertion and again before serialization. Firmware may persist up to 20 stable, secret-free diagnostic codes and send them as batch `diagnostics.errors` or heartbeat `errors`; successful delivery clears only codes included in that acknowledged request.
 
 ## Configuration uptake on upload
 
@@ -130,6 +130,7 @@ Configuration is operational and non-secret. It can change cadence and alarms, b
 - The device can remain offline across repeated Deep Sleep cycles without losing or mutating queued measurements.
 - Backend-controlled default/per-point sample intervals and upload cadence are applied atomically from either piggyback or explicit config.
 - Temperature, humidity, measurement battery, connection battery/RSSI, and diagnostics are visible in the existing backend/dashboard path.
+- Stable firmware diagnostic codes can become backend deviation events without a protocol-version change.
 - Exact ACK correlation and sequence idempotency tests pass against a disposable local MariaDB stack and the VPS test deployment.
 - Deep Sleep timing and power measurements are documented for the selected board, sensor wiring, and calibrated battery divider.
 - Documentation is updated from “awake reference” to the implemented behavior only after hardware and integration evidence exists.

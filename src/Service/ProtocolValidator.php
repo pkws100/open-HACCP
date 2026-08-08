@@ -179,6 +179,7 @@ final class ProtocolValidator
             'rssi_dbm' => $payload->rssi_dbm,
             'wifi_connect_ms' => $payload->wifi_connect_ms,
             'boot_count' => $payload->boot_count,
+            'errors' => $payload->errors ?? [],
         ];
         $telemetry = $this->validateDiagnostics($telemetryObject);
 
@@ -193,7 +194,7 @@ final class ProtocolValidator
         ];
     }
 
-    /** @return array{battery_mv: int, rssi_dbm: int, wifi_connect_ms: int, boot_count: int} */
+    /** @return array{battery_mv: int, rssi_dbm: int, wifi_connect_ms: int, boot_count: int, errors: list<string>} */
     private function validateDiagnostics(stdClass $diagnostics): array
     {
         foreach (['battery_mv', 'rssi_dbm', 'wifi_connect_ms', 'boot_count'] as $field) {
@@ -213,12 +214,25 @@ final class ProtocolValidator
         if ($diagnostics->boot_count < 0 || $diagnostics->boot_count > 4294967295) {
             throw new ApiException(422, 'INVALID_BOOT_COUNT', 'boot_count must be between 0 and 4294967295');
         }
+        $errors = [];
+        if (property_exists($diagnostics, 'errors')) {
+            if (!is_array($diagnostics->errors) || count($diagnostics->errors) > 20) {
+                throw new ApiException(422, 'INVALID_DIAGNOSTIC_ERRORS', 'errors must be an array with at most 20 codes');
+            }
+            foreach ($diagnostics->errors as $code) {
+                if (!is_string($code) || preg_match('/^[A-Z0-9_.-]{1,64}$/', $code) !== 1) {
+                    throw new ApiException(422, 'INVALID_DIAGNOSTIC_ERRORS', 'diagnostic error codes have an invalid format');
+                }
+                $errors[] = $code;
+            }
+        }
 
         return [
             'battery_mv' => $diagnostics->battery_mv,
             'rssi_dbm' => $diagnostics->rssi_dbm,
             'wifi_connect_ms' => $diagnostics->wifi_connect_ms,
             'boot_count' => $diagnostics->boot_count,
+            'errors' => array_values(array_unique($errors)),
         ];
     }
 

@@ -5,34 +5,53 @@ declare(strict_types=1);
 namespace Haccp;
 
 use Haccp\Api\ApiException;
+use Haccp\Controller\AnalysisController;
+use Haccp\Controller\AuthController;
+use Haccp\Controller\ComplianceController;
 use Haccp\Controller\DeviceConfigController;
 use Haccp\Controller\DashboardController;
 use Haccp\Controller\DashboardDataController;
 use Haccp\Controller\DashboardDeviceController;
 use Haccp\Controller\DashboardSettingsController;
+use Haccp\Controller\EventController;
+use Haccp\Controller\ExportController;
 use Haccp\Controller\HealthController;
 use Haccp\Controller\HeartbeatController;
 use Haccp\Controller\MeasurementController;
+use Haccp\Controller\UserController;
 use Haccp\Middleware\DeviceAuthenticationMiddleware;
-use Haccp\Middleware\DashboardAuthenticationMiddleware;
 use Haccp\Middleware\RequestIdMiddleware;
 use Haccp\Middleware\RequestLoggingMiddleware;
+use Haccp\Middleware\SessionAuthenticationMiddleware;
+use Haccp\Repository\AnalysisRepository;
+use Haccp\Repository\AuthRepository;
+use Haccp\Repository\ComplianceRepository;
 use Haccp\Repository\DeviceConfigRepository;
 use Haccp\Repository\DashboardRepository;
 use Haccp\Repository\DeviceRepository;
+use Haccp\Repository\EventRepository;
+use Haccp\Repository\ExportRepository;
 use Haccp\Repository\MeasurementPointRepository;
 use Haccp\Repository\MeasurementRepository;
 use Haccp\Repository\TransmissionRepository;
 use Haccp\Service\ApiKeyService;
+use Haccp\Service\AnalysisService;
+use Haccp\Service\AuditService;
+use Haccp\Service\AuthService;
+use Haccp\Service\ComplianceEventService;
+use Haccp\Service\ComplianceService;
 use Haccp\Service\DeviceConfigService;
 use Haccp\Service\DeviceProvisioningService;
 use Haccp\Service\DashboardService;
 use Haccp\Service\DashboardSettingsService;
 use Haccp\Service\DeviceStatusService;
+use Haccp\Service\EventWorkflowService;
+use Haccp\Service\ExportService;
 use Haccp\Service\GapDetector;
 use Haccp\Service\HeartbeatService;
 use Haccp\Service\MeasurementService;
 use Haccp\Service\ProtocolValidator;
+use Haccp\Service\UserService;
 use Haccp\Support\Clock;
 use Haccp\Support\Database;
 use Haccp\Support\JsonResponse;
@@ -59,10 +78,23 @@ final class ApplicationFactory
         $measurements = new MeasurementRepository($pdo);
         $transmissions = new TransmissionRepository($pdo);
         $configs = new DeviceConfigRepository($pdo);
+        $authRepository = new AuthRepository($pdo);
+        $complianceRepository = new ComplianceRepository($pdo);
+        $eventRepository = new EventRepository($pdo);
+        $exportRepository = new ExportRepository($pdo);
+        $audit = new AuditService($pdo, $clock, $config->auditLogKey);
+        $auth = new AuthService($authRepository, $audit, $clock);
+        $auth->bootstrapAdmin($config->dashboardUsername, $config->dashboardPassword);
+        $users = new UserService($authRepository, $auth, $audit, $clock);
+        $compliance = new ComplianceService($pdo, $complianceRepository, $authRepository, $audit, $clock);
+        $eventTransitions = new ComplianceEventService($pdo, $eventRepository, $clock);
         $configService = new DeviceConfigService($configs, $measurementPoints, $clock);
         $dashboardRepository = new DashboardRepository($pdo);
         $deviceStatus = new DeviceStatusService();
         $dashboard = new DashboardService($dashboardRepository, $clock, $deviceStatus);
+        $analysis = new AnalysisService(new AnalysisRepository($pdo), $dashboardRepository, $eventRepository, $clock);
+        $eventWorkflow = new EventWorkflowService($pdo, $eventRepository, $authRepository, $devices, $auth, $audit, $clock);
+        $exportService = new ExportService($exportRepository, $compliance, $audit, $clock);
         $dashboardSettings = new DashboardSettingsService(
             $pdo,
             $devices,
@@ -93,26 +125,61 @@ final class ApplicationFactory
             $measurements,
             $transmissions,
             $configService,
+            $eventTransitions,
             new GapDetector(),
             $clock,
             $logger,
         );
-        $heartbeatService = new HeartbeatService($pdo, $validator, $devices, $transmissions, $configService, $clock);
+        $heartbeatService = new HeartbeatService($pdo, $validator, $devices, $transmissions, $configService, $eventTransitions, $clock);
 
         $app = SlimAppFactory::create();
         $app->get('/health', new HealthController($pdo));
-        $dashboardAuthentication = new DashboardAuthenticationMiddleware(
-            $config->dashboardUsername,
-            $config->dashboardPassword,
-        );
-        $app->get('/dashboard', new DashboardController(dirname(__DIR__) . '/resources/dashboard.html'))
-            ->add($dashboardAuthentication);
+        $readAccess = new SessionAuthenticationMiddleware($auth, AuthService::ROLES);
+        $writeAccess = new SessionAuthenticationMiddleware($auth, ['administrator', 'operator'], true);
+        $adminRead = new SessionAuthenticationMiddleware($auth, ['administrator']);
+        $adminWrite = new SessionAuthenticationMiddleware($auth, ['administrator'], true);
+        $anyWrite = new SessionAuthenticationMiddleware($auth, AuthService::ROLES, true);
+        $authController = new AuthController($auth, $config);
+        $userController = new UserController($users, $config);
+        $complianceController = new ComplianceController($compliance, $config);
+        $eventController = new EventController($eventWorkflow, $config);
+        $exportController = new ExportController($exportService, $config);
+
+        $app->get('/login', new DashboardController(dirname(__DIR__) . '/resources/login.html'));
+        $app->post('/api/v1/auth/login', [$authController, 'login']);
+        $app->get('/api/v1/auth/me', [$authController, 'me'])->add($readAccess);
+        $app->post('/api/v1/auth/logout', [$authController, 'logout'])->add($anyWrite);
+        $app->put('/api/v1/auth/me/password', [$authController, 'password'])->add($anyWrite);
+
+        $app->get('/dashboard', new DashboardController(dirname(__DIR__) . '/resources/dashboard.html'))->add($readAccess);
         $app->get('/api/v1/dashboard/overview', new DashboardDataController($dashboard))
-            ->add($dashboardAuthentication);
-        $app->post('/api/v1/dashboard/devices', new DashboardDeviceController($deviceProvisioning, $config))
-            ->add($dashboardAuthentication);
-        $app->put('/api/v1/dashboard/devices/{device_uid}/settings', new DashboardSettingsController($dashboardSettings, $config))
-            ->add($dashboardAuthentication);
+            ->add($readAccess);
+        $app->get('/api/v1/dashboard/analysis', new AnalysisController($analysis))->add($readAccess);
+        $app->post('/api/v1/dashboard/devices', new DashboardDeviceController($deviceProvisioning, $config, $audit))->add($writeAccess);
+        $app->put('/api/v1/dashboard/devices/{device_uid}/settings', new DashboardSettingsController($dashboardSettings, $config, $audit))->add($writeAccess);
+        $app->post('/api/v1/dashboard/devices/{device_uid}/battery-replaced', [$eventController, 'batteryReplaced'])->add($writeAccess);
+
+        $app->get('/api/v1/dashboard/events', [$eventController, 'list'])->add($readAccess);
+        $app->get('/api/v1/dashboard/events/{id}', [$eventController, 'detail'])->add($readAccess);
+        $app->post('/api/v1/dashboard/events/{id}/acknowledge', [$eventController, 'acknowledge'])->add($writeAccess);
+        $app->post('/api/v1/dashboard/events/{id}/actions', [$eventController, 'action'])->add($writeAccess);
+        $app->put('/api/v1/dashboard/actions/{id}', [$eventController, 'revise'])->add($writeAccess);
+        $app->post('/api/v1/dashboard/actions/{id}/verify', [$eventController, 'verify'])->add($writeAccess);
+
+        $app->get('/api/v1/dashboard/exports', [$exportController, 'list'])->add($readAccess);
+        $app->post('/api/v1/dashboard/exports', [$exportController, 'create'])->add($anyWrite);
+        $app->get('/api/v1/dashboard/exports/{id}', [$exportController, 'get'])->add($readAccess);
+        $app->get('/api/v1/dashboard/exports/{id}/download', [$exportController, 'download'])->add($readAccess);
+
+        $app->get('/api/v1/dashboard/users', [$userController, 'list'])->add($adminRead);
+        $app->post('/api/v1/dashboard/users', [$userController, 'create'])->add($adminWrite);
+        $app->put('/api/v1/dashboard/users/{id}', [$userController, 'update'])->add($adminWrite);
+        $app->post('/api/v1/dashboard/users/{id}/reset-password', [$userController, 'resetPassword'])->add($adminWrite);
+
+        $app->get('/api/v1/dashboard/establishment', [$complianceController, 'get'])->add($adminRead);
+        $app->put('/api/v1/dashboard/establishment', [$complianceController, 'updateEstablishment'])->add($adminWrite);
+        $app->put('/api/v1/dashboard/measurement-points/{id}/compliance', [$complianceController, 'updatePoint'])->add($adminWrite);
+        $app->get('/api/v1/dashboard/compliance/preflight', [$complianceController, 'preflight'])->add($readAccess);
         $app->group('/api/v1/device', function ($group) use ($measurementService, $heartbeatService, $configService, $config): void {
             $group->post('/measurements', new MeasurementController($measurementService, $config));
             $group->post('/heartbeat', new HeartbeatController($heartbeatService, $config));

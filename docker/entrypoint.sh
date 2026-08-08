@@ -9,6 +9,10 @@ if [ -z "${DEVICE_API_KEY_PEPPER:-}" ] && [ -n "${DEVICE_API_KEY_PEPPER_FILE:-}"
     DEVICE_API_KEY_PEPPER=$(tr -d '\r\n' < "$DEVICE_API_KEY_PEPPER_FILE")
     export DEVICE_API_KEY_PEPPER
 fi
+if [ -z "${AUDIT_LOG_KEY:-}" ] && [ -n "${AUDIT_LOG_KEY_FILE:-}" ]; then
+    AUDIT_LOG_KEY=$(tr -d '\r\n' < "$AUDIT_LOG_KEY_FILE")
+    export AUDIT_LOG_KEY
+fi
 if [ -z "${DASHBOARD_PASSWORD:-}" ] && [ -n "${DASHBOARD_PASSWORD_FILE:-}" ]; then
     DASHBOARD_PASSWORD=$(tr -d '\r\n' < "$DASHBOARD_PASSWORD_FILE")
     export DASHBOARD_PASSWORD
