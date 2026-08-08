@@ -1,6 +1,19 @@
 #!/bin/sh
 set -eu
 
+if [ -z "${DB_PASSWORD:-}" ] && [ -n "${DB_PASSWORD_FILE:-}" ]; then
+    DB_PASSWORD=$(tr -d '\r\n' < "$DB_PASSWORD_FILE")
+    export DB_PASSWORD
+fi
+if [ -z "${DEVICE_API_KEY_PEPPER:-}" ] && [ -n "${DEVICE_API_KEY_PEPPER_FILE:-}" ]; then
+    DEVICE_API_KEY_PEPPER=$(tr -d '\r\n' < "$DEVICE_API_KEY_PEPPER_FILE")
+    export DEVICE_API_KEY_PEPPER
+fi
+if [ -z "${DASHBOARD_PASSWORD:-}" ] && [ -n "${DASHBOARD_PASSWORD_FILE:-}" ]; then
+    DASHBOARD_PASSWORD=$(tr -d '\r\n' < "$DASHBOARD_PASSWORD_FILE")
+    export DASHBOARD_PASSWORD
+fi
+
 if [ "${MIGRATE_ON_START:-true}" = "true" ]; then
     attempts=0
     until php -r '

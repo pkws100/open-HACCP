@@ -3,3 +3,5 @@
 /.runtime/
 /coverage/
 /vendor/
+._*
+**/._*

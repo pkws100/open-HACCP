@@ -17,11 +17,15 @@ final readonly class DashboardRepository
     {
         $statement = $this->pdo->query(
             'SELECT d.id, d.device_uid, d.name, d.status, d.hardware_revision, d.firmware_version,
-                    d.last_seen_at, d.last_rssi_dbm, d.last_battery_mv, COUNT(mp.id) AS measurement_point_count
+                    d.last_seen_at, d.last_rssi_dbm, d.last_battery_mv,
+                    (SELECT COUNT(*) FROM measurement_points mp WHERE mp.device_id = d.id AND mp.active = 1) AS measurement_point_count,
+                    dc.config_version, dc.alarm_enabled, dc.temperature_min_c, dc.temperature_max_c,
+                    dc.battery_low_mv, dc.battery_full_mv
              FROM devices d
-             LEFT JOIN measurement_points mp ON mp.device_id = d.id AND mp.active = 1
-             GROUP BY d.id
-             ORDER BY (d.status = \'active\') DESC, d.name, d.device_uid',
+             INNER JOIN device_configs dc ON dc.device_id = d.id
+                AND dc.config_version = (SELECT MAX(latest.config_version) FROM device_configs latest WHERE latest.device_id = d.id)
+             WHERE d.status = \'active\'
+             ORDER BY d.name, d.device_uid',
         );
 
         return $statement->fetchAll();
@@ -31,9 +35,14 @@ final readonly class DashboardRepository
     public function deviceByUid(string $uid): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, device_uid, name, status, hardware_revision, firmware_version,
-                    last_seen_at, last_rssi_dbm, last_battery_mv
-             FROM devices WHERE device_uid = :uid',
+            'SELECT d.id, d.device_uid, d.name, d.status, d.hardware_revision, d.firmware_version,
+                    d.last_seen_at, d.last_rssi_dbm, d.last_battery_mv,
+                    dc.config_version, dc.alarm_enabled, dc.temperature_min_c, dc.temperature_max_c,
+                    dc.battery_low_mv, dc.battery_full_mv
+             FROM devices d
+             INNER JOIN device_configs dc ON dc.device_id = d.id
+                AND dc.config_version = (SELECT MAX(latest.config_version) FROM device_configs latest WHERE latest.device_id = d.id)
+             WHERE d.device_uid = :uid AND d.status = \'active\'',
         );
         $statement->execute(['uid' => $uid]);
         $row = $statement->fetch();
@@ -61,18 +70,41 @@ final readonly class DashboardRepository
     {
         $devices = $this->pdo->prepare(
             'SELECT COUNT(*) AS total_devices,
-                    SUM(status = \'active\') AS active_devices,
-                    SUM(status = \'active\' AND (last_seen_at IS NULL OR last_seen_at < :stale_cutoff)) AS stale_devices
-             FROM devices',
+                    COUNT(*) AS active_devices,
+                    SUM(last_seen_at IS NULL OR last_seen_at < :stale_cutoff) AS stale_devices
+             FROM devices WHERE status = \'active\'',
         );
         $devices->execute(['stale_cutoff' => $staleCutoff]);
         $result = $devices->fetch();
 
-        $measurements = $this->pdo->prepare('SELECT COUNT(*) FROM measurements WHERE measured_at >= :cutoff');
+        $measurements = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM measurements m
+             INNER JOIN devices d ON d.id = m.device_id
+             WHERE d.status = \'active\' AND m.measured_at >= :cutoff',
+        );
         $measurements->execute(['cutoff' => $cutoff]);
         $result['measurements_in_window'] = (int) $measurements->fetchColumn();
 
         return $result;
+    }
+
+    /** @return list<array<string, mixed>> */
+    public function latestMeasurementsForDevice(int $deviceId): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT mp.code, m.temperature_c, m.measured_at
+             FROM measurement_points mp
+             LEFT JOIN measurements m ON m.id = (
+                 SELECT latest.id FROM measurements latest
+                 WHERE latest.measurement_point_id = mp.id
+                 ORDER BY latest.measured_at DESC, latest.sequence DESC LIMIT 1
+             )
+             WHERE mp.device_id = :device_id AND mp.active = 1
+             ORDER BY mp.id',
+        );
+        $statement->execute(['device_id' => $deviceId]);
+
+        return $statement->fetchAll();
     }
 
     /** @return array<string, mixed> */

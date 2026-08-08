@@ -107,6 +107,8 @@ Sequences increase monotonically per measurement point. The database identity is
 
 `GET /api/v1/device/config` returns the current configuration. Version 1 defaults are 300 seconds measurement interval, 21600 seconds upload interval, and 500 measurements per batch.
 
+An authenticated operator may create a new version through the separate dashboard settings API. Firmware therefore treats a higher `config_version` as an atomic replacement and receives the updated `alarm.enabled`, `temperature_min_c`, and `temperature_max_c` values on its next config fetch. The normal range is inclusive. Dashboard battery display thresholds are intentionally not part of Sensor Protocol V1 and do not appear in the firmware config response.
+
 `POST /api/v1/device/heartbeat` requires protocol version, firmware and hardware versions, battery, RSSI, Wi-Fi connection duration, and boot counter. It updates device status and creates a diagnostic transmission without measurements.
 
 ## HTTP and error codes
@@ -131,3 +133,9 @@ Stable envelope/heartbeat codes include `INVALID_JSON`, `UNSUPPORTED_PROTOCOL_VE
 Stable measurement rejection codes include `MISSING_MEASUREMENT_FIELD`, `UNKNOWN_MEASUREMENT_FIELD`, `INVALID_MEASUREMENT_POINT`, `UNKNOWN_MEASUREMENT_POINT`, `INVALID_SEQUENCE`, `INVALID_MEASURED_AT`, `INVALID_TEMPERATURE`, `INVALID_HUMIDITY`, `INVALID_BATTERY`, `INVALID_MEASUREMENT`, and `SEQUENCE_CONFLICT`.
 
 The normative machine-readable descriptions are [`protocol-v1.schema.json`](protocol-v1.schema.json) and [`openapi.yaml`](openapi.yaml).
+
+## Operator settings outside the firmware protocol
+
+`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses Dashboard Basic authentication and optimistic concurrency through `expected_config_version`. It is an operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature or battery ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
+
+The dashboard evaluates `normal`, `below_min`, `above_max`, `disabled`, and `no_data` directly from current measurements. These are display states only. Protocol V1 does not yet define alarm event records, hysteresis, escalation, push, or email delivery.

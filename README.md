@@ -1,6 +1,6 @@
 # Open HACCP Monitor Backend
 
-Developer prototype for ESP32 temperature and humidity monitoring. The backend defines Sensor Protocol V1 and currently provides device ingestion, diagnostics, configuration, CLI provisioning, and a sensor simulator. It intentionally has no customer UI, user accounts, tenants, alarms, or HACCP reports.
+Developer prototype for ESP32 temperature and humidity monitoring. The backend defines Sensor Protocol V1 and provides device ingestion, diagnostics, versioned configuration, CLI provisioning, an operator dashboard, and an optional three-device demo fleet. It intentionally has no customer accounts, tenants, persistent alarm events, notifications, or HACCP reports.
 
 ## Stack and architecture
 
@@ -49,7 +49,27 @@ Expected health response:
 {"status":"ok","service":"haccp-monitor-backend","database":"ok"}
 ```
 
-The local developer dashboard is available at [http://localhost:18082/dashboard](http://localhost:18082/dashboard) and uses the `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` values from `.env`. The VPS test dashboard is available at [https://haccp.pow24.org/dashboard](https://haccp.pow24.org/dashboard). This is simple operator protection, not customer identity management.
+The local developer dashboard is available at [http://localhost:18082/dashboard](http://localhost:18082/dashboard) and uses the `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` values from `.env`. The VPS test dashboard is available at [https://haccp.pow24.org/dashboard](https://haccp.pow24.org/dashboard). This is simple operator protection, not customer identity management. The same credentials authorize the settings API.
+
+The dashboard lists active devices only. Battery status uses configurable low/full millivolt thresholds; Wi-Fi quality uses the latest RSSI value. Versioned device settings define the inclusive normal temperature range. The current value and chart are evaluated immediately, but this prototype deliberately does not persist alarm events or send notifications.
+
+## Run the three-device demo fleet
+
+The optional `demo` profile idempotently provisions a refrigerator, freezer, and milk-drink cooler. On first start it submits twelve historical readings for each device, then one reading every five minutes. Keys, counters, and exact pending retry batches live only in the `haccp-demo-state` Docker volume and never appear in Compose configuration or logs.
+
+```bash
+docker compose --profile demo up -d --build
+docker compose --profile demo ps
+docker compose logs demo
+```
+
+Use a single cycle for tests:
+
+```bash
+docker compose --profile demo run --rm demo php tools/demo_fleet.php --once --url=http://app
+```
+
+The reserved UIDs are `haccp-demo-fridge`, `haccp-demo-freezer`, and `haccp-demo-milk-cooler`. Only `haccp-demo-*` credentials may be automatically created or rotated. Provisioning is idempotent and preserves settings edited in the dashboard. The simulator never disables unrelated devices; deactivate obsolete test devices explicitly with `bin/device-disable` when an environment should display exactly the demo fleet.
 
 ## Provision a prototype
 
@@ -154,12 +174,12 @@ The complete measurement request and response are documented in [`docs/SENSOR_PR
 ## Inspect stored data and logs
 
 ```bash
-docker compose exec db sh -lc 'mariadb -u"$MARIADB_USER" -p"$MARIADB_PASSWORD" "$MARIADB_DATABASE" -e "SELECT device_id, measurement_point_id, sequence, measured_at, temperature_c, humidity_rh FROM measurements ORDER BY id;"'
+docker compose exec db sh -lc 'MYSQL_PWD="$(cat /run/secrets/database_password)" mariadb -u"$MARIADB_USER" "$MARIADB_DATABASE" -e "SELECT device_id, measurement_point_id, sequence, measured_at, temperature_c, humidity_rh FROM measurements ORDER BY id;"'
 
 docker compose logs app
 ```
 
-Logs contain request IDs, endpoints, status, durations and batch result counts. Device keys, request bodies and database passwords are never logged.
+Logs contain request IDs, endpoints, status, durations and batch result counts. Device keys, request bodies and passwords are never logged. Compose injects database credentials, the device-key pepper, and the dashboard password as runtime secrets, so `docker compose config` contains only secret names rather than values.
 
 ## VPS and reverse proxy
 
@@ -169,7 +189,7 @@ The default binding is `127.0.0.1:18082`, avoiding collisions with public ports 
 docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build
 ```
 
-The override attaches only the app container to the external Docker network named `proxy` under the stable alias `haccp-monitor`. The deployed Nginx Proxy Manager host `haccp.pow24.org` forwards to `haccp-monitor:80`, forces HTTPS, enables HTTP/2 and HSTS, and uses a publicly trusted Let's Encrypt certificate. The host port remains bound to loopback.
+The override attaches only the app container to the external Docker network named `proxy` under the stable alias `haccp-monitor`. The deployed Nginx Proxy Manager host `haccp.pow24.org` forwards to `haccp-monitor:80`, forces HTTPS, enables HTTP/2 and HSTS, and uses a publicly trusted Let's Encrypt certificate. The host port remains bound to loopback. Under the VPS override, the demo container deliberately sends to `https://haccp.pow24.org`, exercising the same DNS, certificate, reverse-proxy, and HTTPS path as firmware.
 
 The external device base URL is:
 
@@ -189,7 +209,7 @@ docker compose --profile test run --rm tests
 docker compose --profile test down
 ```
 
-The integration suite verifies health, authentication, ingestion, retries, partial rejection, unknown measurement points, ranges, config, heartbeat state, secret-free logs, sequence conflicts and gaps, migration tables, key rotation, disabled devices, and the request-size limit.
+The suite verifies health, authentication, ingestion, retries, partial rejection, unknown measurement points, ranges, config, heartbeat state, secret-free logs, sequence conflicts and gaps, migration tables, key rotation, disabled devices, request-size limits, settings validation/version conflicts, status boundaries, and demo-state behavior.
 
 ## Stop and reset
 
@@ -212,4 +232,4 @@ docker compose down -v
 
 ## Prototype limitations
 
-There is no customer user or tenant model, rate limiter, alert delivery, export, calibration workflow, Wi-Fi provisioning, firmware registry, OTA channel, or cloud-provider dependency. The included dashboard is a read-only developer monitor protected by environment-configured HTTP Basic credentials. Device configuration is read-only over Sensor Protocol V1 and currently created with the device through CLI. TLS is terminated by Nginx Proxy Manager in deployment, while firmware uses HTTPS exclusively.
+There is no customer user or tenant model, rate limiter, persistent alarm-event model, alert delivery, export, calibration workflow, Wi-Fi provisioning, firmware registry, OTA channel, or cloud-provider dependency. The operator dashboard is protected by environment-configured HTTP Basic credentials and can create new versioned temperature and battery settings. Device configuration remains read-only from the firmware perspective through Sensor Protocol V1. TLS is terminated by Nginx Proxy Manager in deployment, while firmware and the VPS demo use HTTPS exclusively.

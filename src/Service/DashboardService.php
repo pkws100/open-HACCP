@@ -13,7 +13,11 @@ final readonly class DashboardService
 {
     private const ALLOWED_WINDOWS = [6, 24, 72, 168];
 
-    public function __construct(private DashboardRepository $dashboard, private Clock $clock)
+    public function __construct(
+        private DashboardRepository $dashboard,
+        private Clock $clock,
+        private DeviceStatusService $status,
+    )
     {
     }
 
@@ -51,6 +55,7 @@ final readonly class DashboardService
                 'series' => [],
                 'recent_measurements' => [],
                 'diagnostics' => null,
+                'settings' => null,
             ];
         }
 
@@ -75,6 +80,7 @@ final readonly class DashboardService
             'series' => [],
             'recent_measurements' => [],
             'diagnostics' => $this->transmission($this->dashboard->latestTransmission((int) $device['id'])),
+            'settings' => $this->settings($device),
         ];
 
         if ($point === null) {
@@ -95,6 +101,12 @@ final readonly class DashboardService
             'minimum_temperature_c' => $this->float($summary['minimum_temperature_c']),
             'maximum_temperature_c' => $this->float($summary['maximum_temperature_c']),
             'average_humidity_rh' => $this->float($summary['average_humidity_rh']),
+            'alarm_status' => $this->status->alarm(
+                (bool) $device['alarm_enabled'],
+                $this->float($device['temperature_min_c']),
+                $this->float($device['temperature_max_c']),
+                $this->float($latest['temperature_c'] ?? null),
+            ),
         ];
         $result['series'] = array_map(fn (array $row): array => $this->measurement($row), $this->dashboard->series($pointId, $cutoff));
         $result['recent_measurements'] = array_map(
@@ -108,6 +120,21 @@ final readonly class DashboardService
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private function device(array $row): array
     {
+        $batteryMv = isset($row['last_battery_mv']) ? (int) $row['last_battery_mv'] : null;
+        $rssiDbm = isset($row['last_rssi_dbm']) ? (int) $row['last_rssi_dbm'] : null;
+        $minimum = $this->float($row['temperature_min_c'] ?? null);
+        $maximum = $this->float($row['temperature_max_c'] ?? null);
+        $enabled = (bool) ($row['alarm_enabled'] ?? false);
+        $alarmStates = array_map(
+            fn (array $measurement): string => $this->status->alarm(
+                $enabled,
+                $minimum,
+                $maximum,
+                $this->float($measurement['temperature_c']),
+            ),
+            $this->dashboard->latestMeasurementsForDevice((int) $row['id']),
+        );
+
         return [
             'device_uid' => $row['device_uid'],
             'name' => $row['name'],
@@ -115,9 +142,44 @@ final readonly class DashboardService
             'hardware_revision' => $row['hardware_revision'],
             'firmware_version' => $row['firmware_version'],
             'last_seen_at' => $this->timestamp($row['last_seen_at']),
-            'last_rssi_dbm' => isset($row['last_rssi_dbm']) ? (int) $row['last_rssi_dbm'] : null,
-            'last_battery_mv' => isset($row['last_battery_mv']) ? (int) $row['last_battery_mv'] : null,
+            'last_rssi_dbm' => $rssiDbm,
+            'last_battery_mv' => $batteryMv,
             'measurement_point_count' => isset($row['measurement_point_count']) ? (int) $row['measurement_point_count'] : null,
+            'battery' => [
+                'millivolts' => $batteryMv,
+                'state' => $this->status->battery(
+                    $batteryMv,
+                    (int) ($row['battery_low_mv'] ?? 5600),
+                    (int) ($row['battery_full_mv'] ?? 6000),
+                ),
+            ],
+            'wifi' => [
+                'rssi_dbm' => $rssiDbm,
+                'bars' => $this->status->wifiBars($rssiDbm),
+            ],
+            'alarm' => [
+                'state' => $enabled ? $this->status->worstAlarm($alarmStates) : 'disabled',
+                'enabled' => $enabled,
+                'temperature_min_c' => $minimum,
+                'temperature_max_c' => $maximum,
+            ],
+        ];
+    }
+
+    /** @param array<string, mixed> $row @return array<string, mixed> */
+    private function settings(array $row): array
+    {
+        return [
+            'config_version' => (int) $row['config_version'],
+            'alarm' => [
+                'enabled' => (bool) $row['alarm_enabled'],
+                'temperature_min_c' => $this->float($row['temperature_min_c']),
+                'temperature_max_c' => $this->float($row['temperature_max_c']),
+            ],
+            'battery' => [
+                'low_threshold_mv' => (int) $row['battery_low_mv'],
+                'full_threshold_mv' => (int) $row['battery_full_mv'],
+            ],
         ];
     }
 

@@ -17,8 +17,8 @@ final readonly class DeviceConfigRepository
         $statement = $this->pdo->prepare(
             'INSERT INTO device_configs
              (device_id, config_version, measurement_interval_seconds, upload_interval_seconds,
-              max_batch_size, alarm_enabled, created_at, updated_at)
-             VALUES (:device_id, 1, 300, 21600, 500, 0, :created_at, :updated_at)',
+              max_batch_size, alarm_enabled, battery_low_mv, battery_full_mv, created_at, updated_at)
+             VALUES (:device_id, 1, 300, 21600, 500, 0, 5600, 6000, :created_at, :updated_at)',
         );
         $statement->execute(['device_id' => $deviceId, 'created_at' => $now, 'updated_at' => $now]);
     }
@@ -28,12 +28,59 @@ final readonly class DeviceConfigRepository
     {
         $statement = $this->pdo->prepare(
             'SELECT config_version, measurement_interval_seconds, upload_interval_seconds, max_batch_size,
-                    alarm_enabled, temperature_min_c, temperature_max_c, config_json
+                    alarm_enabled, temperature_min_c, temperature_max_c, battery_low_mv, battery_full_mv, config_json
              FROM device_configs WHERE device_id = :device_id ORDER BY config_version DESC LIMIT 1',
         );
         $statement->execute(['device_id' => $deviceId]);
         $row = $statement->fetch();
 
         return $row === false ? null : $row;
+    }
+
+    /** @return array<string, mixed>|null */
+    public function latestForUpdate(int $deviceId): ?array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT config_version, measurement_interval_seconds, upload_interval_seconds, max_batch_size,
+                    alarm_enabled, temperature_min_c, temperature_max_c, battery_low_mv, battery_full_mv, config_json
+             FROM device_configs WHERE device_id = :device_id ORDER BY config_version DESC LIMIT 1 FOR UPDATE',
+        );
+        $statement->execute(['device_id' => $deviceId]);
+        $row = $statement->fetch();
+
+        return $row === false ? null : $row;
+    }
+
+    /** @param array<string, mixed> $previous @param array<string, mixed> $settings */
+    public function createNext(int $deviceId, array $previous, array $settings, string $now): int
+    {
+        $version = (int) $previous['config_version'] + 1;
+        $statement = $this->pdo->prepare(
+            'INSERT INTO device_configs
+             (device_id, config_version, measurement_interval_seconds, upload_interval_seconds, max_batch_size,
+              alarm_enabled, temperature_min_c, temperature_max_c, battery_low_mv, battery_full_mv,
+              config_json, created_at, updated_at)
+             VALUES
+             (:device_id, :config_version, :measurement_interval_seconds, :upload_interval_seconds, :max_batch_size,
+              :alarm_enabled, :temperature_min_c, :temperature_max_c, :battery_low_mv, :battery_full_mv,
+              :config_json, :created_at, :updated_at)',
+        );
+        $statement->execute([
+            'device_id' => $deviceId,
+            'config_version' => $version,
+            'measurement_interval_seconds' => $previous['measurement_interval_seconds'],
+            'upload_interval_seconds' => $previous['upload_interval_seconds'],
+            'max_batch_size' => $previous['max_batch_size'],
+            'alarm_enabled' => $settings['alarm_enabled'] ? 1 : 0,
+            'temperature_min_c' => $settings['temperature_min_c'],
+            'temperature_max_c' => $settings['temperature_max_c'],
+            'battery_low_mv' => $settings['battery_low_mv'],
+            'battery_full_mv' => $settings['battery_full_mv'],
+            'config_json' => $previous['config_json'],
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        return $version;
     }
 }

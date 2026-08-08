@@ -208,6 +208,65 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/dashboard/devices/{device_uid}/settings:
+    put:
+      operationId: updateDashboardDeviceSettings
+      summary: Create a new version of device alarm and battery display settings
+      description: Operator endpoint protected by Dashboard Basic authentication; not part of Sensor Protocol V1.
+      security:
+        - DashboardBasic: []
+      parameters:
+        - in: path
+          name: device_uid
+          required: true
+          schema:
+            type: string
+            pattern: "^[a-z0-9][a-z0-9-]{2,63}$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DashboardSettingsRequest"
+            example:
+              expected_config_version: 1
+              alarm:
+                enabled: true
+                temperature_min_c: 2.0
+                temperature_max_c: 7.0
+              battery:
+                low_threshold_mv: 5600
+                full_threshold_mv: 6000
+      responses:
+        "200":
+          description: A complete new configuration version was created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSettingsResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Device UID is unknown
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "409":
+          description: expected_config_version is no longer current
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          description: Temperature or battery settings are invalid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   securitySchemes:
     DeviceId:
@@ -312,6 +371,56 @@ components:
             enabled: { type: boolean }
             temperature_min_c: { type: [number, "null"] }
             temperature_max_c: { type: [number, "null"] }
+    DashboardSettingsRequest:
+      type: object
+      additionalProperties: false
+      required: [expected_config_version, alarm, battery]
+      properties:
+        expected_config_version: { type: integer, minimum: 1 }
+        alarm:
+          type: object
+          additionalProperties: false
+          required: [enabled, temperature_min_c, temperature_max_c]
+          properties:
+            enabled: { type: boolean }
+            temperature_min_c: { type: [number, "null"], minimum: -100, maximum: 150 }
+            temperature_max_c: { type: [number, "null"], minimum: -100, maximum: 150 }
+        battery:
+          type: object
+          additionalProperties: false
+          required: [low_threshold_mv, full_threshold_mv]
+          properties:
+            low_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
+            full_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
+    DashboardSettingsResponse:
+      type: object
+      additionalProperties: false
+      required: [success, config_version, settings, alarm_status]
+      properties:
+        success: { type: boolean, const: true }
+        config_version: { type: integer, minimum: 2 }
+        settings:
+          type: object
+          required: [config_version, alarm, battery]
+          additionalProperties: false
+          properties:
+            config_version: { type: integer, minimum: 2 }
+            alarm:
+              type: object
+              required: [enabled, temperature_min_c, temperature_max_c]
+              properties:
+                enabled: { type: boolean }
+                temperature_min_c: { type: [number, "null"] }
+                temperature_max_c: { type: [number, "null"] }
+            battery:
+              type: object
+              required: [low_threshold_mv, full_threshold_mv]
+              properties:
+                low_threshold_mv: { type: integer }
+                full_threshold_mv: { type: integer }
+        alarm_status:
+          type: string
+          enum: [normal, below_min, above_max, disabled, no_data]
     ErrorResponse:
       type: object
       required: [success, error]

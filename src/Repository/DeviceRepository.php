@@ -67,6 +67,14 @@ final readonly class DeviceRepository
         return $statement->rowCount() > 0 || $this->findByUid($uid) !== null;
     }
 
+    public function activateAndRename(int $deviceId, string $name, string $now): void
+    {
+        $statement = $this->pdo->prepare(
+            'UPDATE devices SET name = :name, status = :status, updated_at = :updated_at WHERE id = :id',
+        );
+        $statement->execute(['name' => $name, 'status' => 'active', 'updated_at' => $now, 'id' => $deviceId]);
+    }
+
     public function updateApiKey(int $deviceId, string $apiKeyHash, string $now): void
     {
         $statement = $this->pdo->prepare(

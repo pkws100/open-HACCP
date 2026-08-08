@@ -8,6 +8,7 @@ use Haccp\Api\ApiException;
 use Haccp\Controller\DeviceConfigController;
 use Haccp\Controller\DashboardController;
 use Haccp\Controller\DashboardDataController;
+use Haccp\Controller\DashboardSettingsController;
 use Haccp\Controller\HealthController;
 use Haccp\Controller\HeartbeatController;
 use Haccp\Controller\MeasurementController;
@@ -24,6 +25,8 @@ use Haccp\Repository\TransmissionRepository;
 use Haccp\Service\ApiKeyService;
 use Haccp\Service\DeviceConfigService;
 use Haccp\Service\DashboardService;
+use Haccp\Service\DashboardSettingsService;
+use Haccp\Service\DeviceStatusService;
 use Haccp\Service\GapDetector;
 use Haccp\Service\HeartbeatService;
 use Haccp\Service\MeasurementService;
@@ -54,7 +57,17 @@ final class ApplicationFactory
         $measurements = new MeasurementRepository($pdo);
         $transmissions = new TransmissionRepository($pdo);
         $configs = new DeviceConfigRepository($pdo);
-        $dashboard = new DashboardService(new DashboardRepository($pdo), $clock);
+        $dashboardRepository = new DashboardRepository($pdo);
+        $deviceStatus = new DeviceStatusService();
+        $dashboard = new DashboardService($dashboardRepository, $clock, $deviceStatus);
+        $dashboardSettings = new DashboardSettingsService(
+            $pdo,
+            $devices,
+            $configs,
+            $dashboardRepository,
+            $deviceStatus,
+            $clock,
+        );
         $validator = new ProtocolValidator($clock, dirname(__DIR__) . '/docs/protocol-v1.schema.json');
         $keys = new ApiKeyService($config->deviceKeyPepper);
 
@@ -82,6 +95,8 @@ final class ApplicationFactory
         $app->get('/dashboard', new DashboardController(dirname(__DIR__) . '/resources/dashboard.html'))
             ->add($dashboardAuthentication);
         $app->get('/api/v1/dashboard/overview', new DashboardDataController($dashboard))
+            ->add($dashboardAuthentication);
+        $app->put('/api/v1/dashboard/devices/{device_uid}/settings', new DashboardSettingsController($dashboardSettings, $config))
             ->add($dashboardAuthentication);
         $app->group('/api/v1/device', function ($group) use ($measurementService, $heartbeatService, $configService, $config): void {
             $group->post('/measurements', new MeasurementController($measurementService, $config));

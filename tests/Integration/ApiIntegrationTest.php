@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Haccp\Tests\Integration;
 
+use Haccp\Demo\DemoDeviceProvisioner;
+use Haccp\Repository\DeviceConfigRepository;
 use Haccp\Repository\DeviceRepository;
+use Haccp\Repository\MeasurementPointRepository;
 use Haccp\Service\ApiKeyService;
 use Haccp\Support\Clock;
 use Slim\Psr7\Factory\ServerRequestFactory;
@@ -204,6 +207,11 @@ final class ApiIntegrationTest extends IntegrationTestCase
         );
 
         self::assertCount(5, $statement->fetchAll());
+        $columns = $this->pdo->query(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE()
+             AND table_name = 'device_configs' AND column_name IN ('battery_low_mv', 'battery_full_mv')",
+        );
+        self::assertCount(2, $columns->fetchAll());
     }
 
     public function testDashboardRequiresBasicAuthentication(): void
@@ -231,5 +239,174 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(3, $json['kpis']['measurement_count']);
         self::assertCount(3, $json['series']);
         self::assertCount(3, $json['recent_measurements']);
+        self::assertSame('full', $json['selected_device']['battery']['state']);
+        self::assertSame(3, $json['selected_device']['wifi']['bars']);
+        self::assertSame('disabled', $json['kpis']['alarm_status']);
+        self::assertSame(1, $json['settings']['config_version']);
+    }
+
+    public function testDashboardSettingsRequireAuthenticationAndCreateVersionUsedByFirmware(): void
+    {
+        $payload = $this->settingsPayload();
+        self::assertSame(401, $this->dashboardRequest(
+            '/api/v1/dashboard/devices/' . $this->deviceUid . '/settings',
+            false,
+            'PUT',
+            $payload,
+        )->getStatusCode());
+
+        $response = $this->dashboardRequest(
+            '/api/v1/dashboard/devices/' . $this->deviceUid . '/settings',
+            true,
+            'PUT',
+            $payload,
+        );
+        $json = $this->json($response);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(2, $json['config_version']);
+        self::assertSame(5600, $json['settings']['battery']['low_threshold_mv']);
+        self::assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM device_configs')->fetchColumn());
+
+        $firmwareConfig = $this->json($this->request('GET', '/api/v1/device/config'));
+        self::assertSame(2, $firmwareConfig['config_version']);
+        self::assertTrue($firmwareConfig['alarm']['enabled']);
+        self::assertEquals(2.0, $firmwareConfig['alarm']['temperature_min_c']);
+        self::assertArrayNotHasKey('battery', $firmwareConfig);
+    }
+
+    public function testDashboardSettingsRejectInvalidRangesAndVersionConflicts(): void
+    {
+        $invalid = $this->settingsPayload();
+        $invalid['alarm']['temperature_min_c'] = 8.0;
+        $invalid['alarm']['temperature_max_c'] = 7.0;
+        $invalid['battery']['low_threshold_mv'] = 6000;
+        $invalid['battery']['full_threshold_mv'] = 6000;
+        $response = $this->dashboardRequest(
+            '/api/v1/dashboard/devices/' . $this->deviceUid . '/settings',
+            true,
+            'PUT',
+            $invalid,
+        );
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame('INVALID_DEVICE_SETTINGS', $this->json($response)['error']['code']);
+
+        $this->dashboardRequest(
+            '/api/v1/dashboard/devices/' . $this->deviceUid . '/settings',
+            true,
+            'PUT',
+            $this->settingsPayload(),
+        );
+        $conflict = $this->dashboardRequest(
+            '/api/v1/dashboard/devices/' . $this->deviceUid . '/settings',
+            true,
+            'PUT',
+            $this->settingsPayload(),
+        );
+        self::assertSame(409, $conflict->getStatusCode());
+        self::assertSame('DEVICE_CONFIG_VERSION_CONFLICT', $this->json($conflict)['error']['code']);
+    }
+
+    public function testDashboardSettingsRejectUnknownDevice(): void
+    {
+        $response = $this->dashboardRequest(
+            '/api/v1/dashboard/devices/does-not-exist/settings',
+            true,
+            'PUT',
+            $this->settingsPayload(),
+        );
+
+        self::assertSame(404, $response->getStatusCode());
+        self::assertSame('DASHBOARD_DEVICE_NOT_FOUND', $this->json($response)['error']['code']);
+    }
+
+    public function testDashboardAlarmStatusUsesInclusiveLimitsAndShowsViolations(): void
+    {
+        $this->dashboardRequest(
+            '/api/v1/dashboard/devices/' . $this->deviceUid . '/settings',
+            true,
+            'PUT',
+            $this->settingsPayload(),
+        );
+        $sent = new \DateTimeImmutable('-1 minute', new \DateTimeZone('UTC'));
+        $boundary = $this->measurement(1, $sent);
+        $boundary['temperature_c'] = 7.0;
+        $this->request('POST', '/api/v1/device/measurements', $this->batch([$boundary], 'boundary'));
+        $overview = $this->json($this->dashboardRequest('/api/v1/dashboard/overview'));
+        self::assertSame('normal', $overview['kpis']['alarm_status']);
+
+        $above = $this->measurement(2, $sent);
+        $above['temperature_c'] = 7.01;
+        $this->request('POST', '/api/v1/device/measurements', $this->batch([$above], 'above'));
+        $overview = $this->json($this->dashboardRequest('/api/v1/dashboard/overview'));
+        self::assertSame('above_max', $overview['kpis']['alarm_status']);
+        self::assertSame('above_max', $overview['devices'][0]['alarm']['state']);
+    }
+
+    public function testDisabledDevicesAreExcludedFromDashboard(): void
+    {
+        $repository = new DeviceRepository($this->pdo);
+        $repository->disable($this->deviceUid, (new Clock())->database((new Clock())->now()));
+        $overview = $this->json($this->dashboardRequest('/api/v1/dashboard/overview'));
+
+        self::assertSame([], $overview['devices']);
+        self::assertSame(0, $overview['fleet']['total_devices']);
+        self::assertNull($overview['selection']);
+    }
+
+    public function testDemoProvisioningIsIdempotentRotatesOnlyReservedDevicesAndBuildsThreeDeviceOverview(): void
+    {
+        $devices = new DeviceRepository($this->pdo);
+        $provisioner = new DemoDeviceProvisioner(
+            $this->pdo,
+            $devices,
+            new MeasurementPointRepository($this->pdo),
+            new DeviceConfigRepository($this->pdo),
+            new ApiKeyService($this->config->deviceKeyPepper),
+            new Clock(),
+        );
+        $initial = ['schema_version' => 1, 'devices' => []];
+        $state = $provisioner->provision($initial);
+        $counts = [
+            'devices' => (int) $this->pdo->query("SELECT COUNT(*) FROM devices WHERE device_uid LIKE 'haccp-demo-%'")->fetchColumn(),
+            'points' => (int) $this->pdo->query("SELECT COUNT(*) FROM measurement_points mp JOIN devices d ON d.id = mp.device_id WHERE d.device_uid LIKE 'haccp-demo-%'")->fetchColumn(),
+            'configs' => (int) $this->pdo->query("SELECT COUNT(*) FROM device_configs dc JOIN devices d ON d.id = dc.device_id WHERE d.device_uid LIKE 'haccp-demo-%'")->fetchColumn(),
+        ];
+        $sameState = $provisioner->provision($state);
+
+        self::assertSame(['devices' => 3, 'points' => 3, 'configs' => 6], $counts);
+        self::assertSame($state, $sameState);
+        self::assertSame(6, (int) $this->pdo->query("SELECT COUNT(*) FROM device_configs dc JOIN devices d ON d.id = dc.device_id WHERE d.device_uid LIKE 'haccp-demo-%'")->fetchColumn());
+        foreach ($state['devices'] as $deviceState) {
+            self::assertSame(0, (int) $this->pdo->query('SELECT COUNT(*) FROM devices WHERE api_key_hash = ' . $this->pdo->quote($deviceState['key']))->fetchColumn());
+        }
+
+        $oldHash = (string) $this->pdo->query("SELECT api_key_hash FROM devices WHERE device_uid = 'haccp-demo-fridge'")->fetchColumn();
+        $rotated = $provisioner->provision($initial);
+        $newHash = (string) $this->pdo->query("SELECT api_key_hash FROM devices WHERE device_uid = 'haccp-demo-fridge'")->fetchColumn();
+        self::assertNotSame($oldHash, $newHash);
+        self::assertNotSame($state['devices']['haccp-demo-fridge']['key'], $rotated['devices']['haccp-demo-fridge']['key']);
+
+        $devices->disable($this->deviceUid, (new Clock())->database((new Clock())->now()));
+        $overview = $this->json($this->dashboardRequest('/api/v1/dashboard/overview'));
+        self::assertSame(3, $overview['fleet']['total_devices']);
+        self::assertCount(3, $overview['devices']);
+    }
+
+    /** @return array<string, mixed> */
+    private function settingsPayload(): array
+    {
+        return [
+            'expected_config_version' => 1,
+            'alarm' => [
+                'enabled' => true,
+                'temperature_min_c' => 2.0,
+                'temperature_max_c' => 7.0,
+            ],
+            'battery' => [
+                'low_threshold_mv' => 5600,
+                'full_threshold_mv' => 6000,
+            ],
+        ];
     }
 }

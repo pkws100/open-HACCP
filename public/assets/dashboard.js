@@ -8,6 +8,8 @@
     hours: 24,
     hoverIndex: null,
     loading: false,
+    saving: false,
+    inspectorOpen: false,
   };
 
   const elements = {
@@ -21,6 +23,8 @@
     context: document.querySelector('#device-context'),
     pointSelect: document.querySelector('#point-select'),
     temperature: document.querySelector('#temperature-value'),
+    temperatureStatus: document.querySelector('#temperature-status'),
+    temperatureRange: document.querySelector('#temperature-range'),
     humidity: document.querySelector('#humidity-value'),
     minimum: document.querySelector('#minimum-value'),
     maximum: document.querySelector('#maximum-value'),
@@ -32,7 +36,31 @@
     recentTable: document.querySelector('#recent-table'),
     deviceState: document.querySelector('#device-state'),
     diagnosticList: document.querySelector('#diagnostic-list'),
+    diagnosticSignal: document.querySelector('#diagnostic-signal'),
+    diagnosticBattery: document.querySelector('#diagnostic-battery'),
     fleetSummary: document.querySelector('#fleet-summary'),
+    settingsButton: document.querySelector('#settings-button'),
+    settingsBackdrop: document.querySelector('#settings-backdrop'),
+    settingsInspector: document.querySelector('#settings-inspector'),
+    settingsForm: document.querySelector('#settings-form'),
+    settingsClose: document.querySelector('#settings-close'),
+    settingsCancel: document.querySelector('#settings-cancel'),
+    settingsSave: document.querySelector('#settings-save'),
+    settingsDevice: document.querySelector('#settings-device'),
+    settingsMessage: document.querySelector('#settings-message'),
+    alarmEnabled: document.querySelector('#alarm-enabled'),
+    temperatureMin: document.querySelector('#temperature-min'),
+    temperatureMax: document.querySelector('#temperature-max'),
+    batteryLow: document.querySelector('#battery-low'),
+    batteryFull: document.querySelector('#battery-full'),
+  };
+
+  const alarmLabels = {
+    normal: 'Im Bereich',
+    below_min: 'Zu kalt',
+    above_max: 'Zu warm',
+    disabled: 'Deaktiviert',
+    no_data: 'Keine Daten',
   };
 
   const formatNumber = (value, digits = 1) => value == null
@@ -50,6 +78,35 @@
   const isOnline = (device, serverTime) => {
     if (!device || device.status !== 'active' || !device.last_seen_at) return false;
     return new Date(serverTime).getTime() - new Date(device.last_seen_at).getTime() < 12 * 60 * 60 * 1000;
+  };
+
+  const batteryIcon = (battery, includeValue = false) => {
+    const wrapper = document.createElement('span');
+    const stateName = battery?.state ?? 'unknown';
+    const levels = { low: 1, medium: 2, full: 3, unknown: 0 };
+    const widths = [0, 4, 8, 12];
+    wrapper.className = `status-icon is-${stateName}`;
+    wrapper.title = battery?.millivolts == null ? 'Batterie unbekannt' : `Batterie ${stateName}: ${battery.millivolts} mV`;
+    wrapper.setAttribute('aria-label', wrapper.title);
+    wrapper.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="16" height="10" rx="2"/><path d="M21 10v4"/><rect class="battery-fill" x="5" y="9" width="${widths[levels[stateName]]}" height="6" rx="1"/></svg>`;
+    if (includeValue) wrapper.append(document.createTextNode(battery?.millivolts == null ? '–' : `${battery.millivolts} mV`));
+    return wrapper;
+  };
+
+  const wifiIcon = (wifi, includeValue = false) => {
+    const wrapper = document.createElement('span');
+    const bars = wifi?.bars ?? 0;
+    wrapper.className = `status-icon ${bars >= 4 ? 'is-strong' : ''}`;
+    wrapper.title = wifi?.rssi_dbm == null ? 'WLAN-Signal unbekannt' : `WLAN ${bars} von 4 Balken: ${wifi.rssi_dbm} dBm`;
+    wrapper.setAttribute('aria-label', wrapper.title);
+    wrapper.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect class="wifi-bar ${bars >= 1 ? 'is-on' : ''}" x="3" y="16" width="3" height="4" rx="1"/>
+      <rect class="wifi-bar ${bars >= 2 ? 'is-on' : ''}" x="8" y="12" width="3" height="8" rx="1"/>
+      <rect class="wifi-bar ${bars >= 3 ? 'is-on' : ''}" x="13" y="8" width="3" height="12" rx="1"/>
+      <rect class="wifi-bar ${bars >= 4 ? 'is-on' : ''}" x="18" y="4" width="3" height="16" rx="1"/>
+    </svg>`;
+    if (includeValue) wrapper.append(document.createTextNode(wifi?.rssi_dbm == null ? '–' : `${wifi.rssi_dbm} dBm`));
+    return wrapper;
   };
 
   async function loadData() {
@@ -89,14 +146,16 @@
     const data = state.data;
     renderDevices(data);
     renderSelection(data);
-    renderMetrics(data.kpis);
-    renderChart(data.series ?? []);
+    renderMetrics(data);
+    renderChart(data.series ?? [], data.settings);
     renderRecent(data.recent_measurements ?? []);
     renderDiagnostics(data);
+    elements.settingsButton.disabled = !data.selected_device;
     elements.fleetSummary.textContent = `${data.fleet.total_devices} Geräte · ${data.fleet.measurements_in_window} Messungen in ${data.window_hours} h`;
     document.querySelectorAll('[data-hours]').forEach((button) => {
       button.classList.toggle('is-active', Number(button.dataset.hours) === data.window_hours);
     });
+    if (state.inspectorOpen) fillSettingsForm();
   }
 
   function renderDevices(data) {
@@ -108,6 +167,7 @@
       const copy = document.createElement('span');
       const name = document.createElement('strong');
       const uid = document.createElement('small');
+      const signals = document.createElement('span');
       button.type = 'button';
       button.className = 'device-button';
       button.classList.toggle('is-active', device.device_uid === state.device);
@@ -117,7 +177,9 @@
       name.textContent = device.name;
       uid.textContent = device.device_uid;
       copy.append(name, uid);
-      button.append(pin, copy);
+      signals.className = 'device-signals';
+      signals.append(wifiIcon(device.wifi), batteryIcon(device.battery));
+      button.append(pin, copy, signals);
       button.addEventListener('click', () => {
         if (state.device === device.device_uid) return;
         state.device = device.device_uid;
@@ -157,13 +219,21 @@
     }
   }
 
-  function renderMetrics(kpis) {
+  function renderMetrics(data) {
+    const kpis = data.kpis;
+    const alarm = data.settings?.alarm;
+    const alarmState = kpis?.alarm_status ?? 'no_data';
     elements.temperature.textContent = formatNumber(kpis?.latest_temperature_c);
     elements.humidity.textContent = formatNumber(kpis?.latest_humidity_rh);
     elements.minimum.textContent = formatNumber(kpis?.minimum_temperature_c);
     elements.maximum.textContent = formatNumber(kpis?.maximum_temperature_c);
     elements.latestTime.textContent = formatTime(kpis?.latest_measured_at, true);
     elements.measurementCount.textContent = `${kpis?.measurement_count ?? 0} Messwerte`;
+    elements.temperatureStatus.textContent = alarmLabels[alarmState] ?? 'Unbekannt';
+    elements.temperatureStatus.className = `alarm-state ${alarmState === 'normal' ? 'is-normal' : ['below_min', 'above_max'].includes(alarmState) ? 'is-alarm' : ''}`;
+    elements.temperatureRange.textContent = alarm?.enabled
+      ? `Normal ${formatNumber(alarm.temperature_min_c)} bis ${formatNumber(alarm.temperature_max_c)} °C`
+      : 'Grenzbereich nicht aktiv';
   }
 
   function renderRecent(rows) {
@@ -206,17 +276,19 @@
     const values = [
       diagnostic?.firmware_version ?? device?.firmware_version ?? '–',
       diagnostic?.hardware_revision ?? device?.hardware_revision ?? '–',
-      diagnostic?.rssi_dbm == null ? '–' : `${diagnostic.rssi_dbm} dBm`,
+      null,
       diagnostic?.wifi_connect_ms == null ? '–' : `${diagnostic.wifi_connect_ms} ms`,
-      diagnostic?.battery_mv == null ? '–' : `${diagnostic.battery_mv} mV`,
+      null,
       diagnostic?.boot_count == null ? '–' : String(diagnostic.boot_count),
     ];
     elements.diagnosticList.querySelectorAll('dd').forEach((element, index) => {
-      element.textContent = values[index];
+      if (values[index] !== null) element.textContent = values[index];
     });
+    elements.diagnosticSignal.replaceChildren(wifiIcon(device?.wifi, true));
+    elements.diagnosticBattery.replaceChildren(batteryIcon(device?.battery, true));
   }
 
-  function renderChart(series) {
+  function renderChart(series, settings) {
     const canvas = elements.canvas;
     const context = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
@@ -236,6 +308,7 @@
       muted: styles.getPropertyValue('--muted').trim(),
       quiet: styles.getPropertyValue('--quiet').trim(),
       accent: styles.getPropertyValue('--accent').trim(),
+      accentSoft: styles.getPropertyValue('--accent-soft').trim(),
       background: styles.getPropertyValue('--bg').trim(),
     };
     const pad = { left: 48, right: 48, top: 22, bottom: 34 };
@@ -243,6 +316,11 @@
     const height = rect.height - pad.top - pad.bottom;
     const temperatures = series.map((row) => row.temperature_c);
     const humidities = series.map((row) => row.humidity_rh);
+    const alarm = settings?.alarm;
+    const temperatureScaleValues = [...temperatures];
+    if (alarm?.enabled && alarm.temperature_min_c != null && alarm.temperature_max_c != null) {
+      temperatureScaleValues.push(alarm.temperature_min_c, alarm.temperature_max_c);
+    }
     const extent = (values, fallbackPadding) => {
       let min = Math.min(...values);
       let max = Math.max(...values);
@@ -251,11 +329,29 @@
       max += range * 0.14;
       return [min, max];
     };
-    const [temperatureMin, temperatureMax] = extent(temperatures, 2);
+    const [temperatureMin, temperatureMax] = extent(temperatureScaleValues, 2);
     const [humidityMin, humidityMax] = extent(humidities, 10);
     const x = (index) => pad.left + (series.length === 1 ? width / 2 : (index / (series.length - 1)) * width);
     const yTemperature = (value) => pad.top + height - ((value - temperatureMin) / (temperatureMax - temperatureMin)) * height;
     const yHumidity = (value) => pad.top + height - ((value - humidityMin) / (humidityMax - humidityMin)) * height;
+
+    if (alarm?.enabled && alarm.temperature_min_c != null && alarm.temperature_max_c != null) {
+      const top = yTemperature(alarm.temperature_max_c);
+      const bottom = yTemperature(alarm.temperature_min_c);
+      context.fillStyle = colors.accentSoft;
+      context.fillRect(pad.left, top, width, bottom - top);
+      context.strokeStyle = colors.accent;
+      context.globalAlpha = .28;
+      context.setLineDash([3, 5]);
+      [top, bottom].forEach((y) => {
+        context.beginPath();
+        context.moveTo(pad.left, y);
+        context.lineTo(rect.width - pad.right, y);
+        context.stroke();
+      });
+      context.globalAlpha = 1;
+      context.setLineDash([]);
+    }
 
     context.lineWidth = 1;
     context.font = '10px ui-monospace, SFMono-Regular, Menlo, monospace';
@@ -343,6 +439,145 @@
     elements.tooltip.style.top = `${Math.max(45, Math.min(pointerY, elements.canvas.clientHeight - 45))}px`;
   }
 
+  function openSettings() {
+    if (!state.data?.settings) return;
+    state.inspectorOpen = true;
+    elements.settingsBackdrop.hidden = false;
+    elements.settingsInspector.hidden = false;
+    document.body.style.overflow = 'hidden';
+    clearFormMessages();
+    fillSettingsForm();
+    window.requestAnimationFrame(() => elements.alarmEnabled.focus());
+  }
+
+  function closeSettings() {
+    if (state.saving) return;
+    state.inspectorOpen = false;
+    elements.settingsBackdrop.hidden = true;
+    elements.settingsInspector.hidden = true;
+    document.body.style.overflow = '';
+    elements.settingsButton.focus();
+  }
+
+  function fillSettingsForm() {
+    const settings = state.data?.settings;
+    if (!settings) return;
+    elements.settingsDevice.textContent = `${state.data.selected_device.name} · Version ${settings.config_version}`;
+    elements.alarmEnabled.checked = settings.alarm.enabled;
+    elements.temperatureMin.value = settings.alarm.temperature_min_c ?? '';
+    elements.temperatureMax.value = settings.alarm.temperature_max_c ?? '';
+    elements.batteryLow.value = settings.battery.low_threshold_mv;
+    elements.batteryFull.value = settings.battery.full_threshold_mv;
+  }
+
+  function clearFormMessages() {
+    elements.settingsMessage.hidden = true;
+    elements.settingsMessage.className = 'form-message';
+    elements.settingsForm.querySelectorAll('.field-error').forEach((element) => {
+      element.hidden = true;
+      element.textContent = '';
+    });
+    elements.settingsForm.querySelectorAll('[aria-invalid]').forEach((element) => element.removeAttribute('aria-invalid'));
+  }
+
+  function showFieldError(group, message) {
+    const output = elements.settingsForm.querySelector(`[data-error-for="${group}"]`);
+    if (output) {
+      output.textContent = message;
+      output.hidden = false;
+    }
+    const inputs = group === 'alarm'
+      ? [elements.temperatureMin, elements.temperatureMax]
+      : [elements.batteryLow, elements.batteryFull];
+    inputs.forEach((input) => input.setAttribute('aria-invalid', 'true'));
+  }
+
+  function settingsPayload() {
+    const min = elements.temperatureMin.value === '' ? null : Number(elements.temperatureMin.value);
+    const max = elements.temperatureMax.value === '' ? null : Number(elements.temperatureMax.value);
+    const low = Number(elements.batteryLow.value);
+    const full = Number(elements.batteryFull.value);
+    return {
+      expected_config_version: state.data.settings.config_version,
+      alarm: { enabled: elements.alarmEnabled.checked, temperature_min_c: min, temperature_max_c: max },
+      battery: { low_threshold_mv: low, full_threshold_mv: full },
+    };
+  }
+
+  function validateSettings(payload) {
+    let valid = true;
+    if (payload.alarm.enabled && (payload.alarm.temperature_min_c == null || payload.alarm.temperature_max_c == null)) {
+      showFieldError('alarm', 'Bei aktivem Alarm werden beide Temperaturgrenzen benötigt.');
+      valid = false;
+    } else if (payload.alarm.temperature_min_c != null && payload.alarm.temperature_max_c != null
+      && (payload.alarm.temperature_min_c < -100 || payload.alarm.temperature_max_c > 150
+        || payload.alarm.temperature_min_c >= payload.alarm.temperature_max_c)) {
+      showFieldError('alarm', 'Minimum und Maximum müssen zwischen −100 und 150 °C liegen; Minimum muss kleiner sein.');
+      valid = false;
+    }
+    if (!Number.isInteger(payload.battery.low_threshold_mv) || !Number.isInteger(payload.battery.full_threshold_mv)
+      || payload.battery.low_threshold_mv < 0 || payload.battery.full_threshold_mv > 10000
+      || payload.battery.low_threshold_mv >= payload.battery.full_threshold_mv) {
+      showFieldError('battery', 'Beide Werte müssen ganze Millivoltwerte von 0 bis 10000 sein; „Niedrig“ muss kleiner sein.');
+      valid = false;
+    }
+    return valid;
+  }
+
+  async function saveSettings(event) {
+    event.preventDefault();
+    if (state.saving || !state.data?.settings) return;
+    clearFormMessages();
+    const payload = settingsPayload();
+    if (!validateSettings(payload)) return;
+
+    state.saving = true;
+    elements.settingsSave.disabled = true;
+    elements.settingsCancel.disabled = true;
+    elements.settingsSave.textContent = 'Wird gespeichert …';
+    try {
+      const response = await fetch(`/api/v1/dashboard/devices/${encodeURIComponent(state.device)}/settings`, {
+        method: 'PUT',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        if (response.status === 409) {
+          await loadData();
+          elements.settingsMessage.textContent = 'Die Konfiguration wurde zwischenzeitlich geändert. Die aktuellen Werte wurden neu geladen; bitte prüfen und erneut speichern.';
+        } else if (response.status === 422) {
+          const fields = json.error?.details?.fields ?? {};
+          const alarmErrors = Object.entries(fields).filter(([field]) => field.startsWith('alarm')).map(([, message]) => message);
+          const batteryErrors = Object.entries(fields).filter(([field]) => field.startsWith('battery')).map(([, message]) => message);
+          if (alarmErrors.length) showFieldError('alarm', alarmErrors.join(' '));
+          if (batteryErrors.length) showFieldError('battery', batteryErrors.join(' '));
+          elements.settingsMessage.textContent = 'Bitte korrigieren Sie die markierten Werte.';
+        } else {
+          elements.settingsMessage.textContent = json.error?.message ?? `Speichern fehlgeschlagen (HTTP ${response.status}).`;
+        }
+        elements.settingsMessage.hidden = false;
+        return;
+      }
+
+      await loadData();
+      elements.settingsMessage.textContent = `Gespeichert als Konfigurationsversion ${json.config_version}.`;
+      elements.settingsMessage.classList.add('is-success');
+      elements.settingsMessage.hidden = false;
+      window.setTimeout(closeSettings, 850);
+    } catch (error) {
+      elements.settingsMessage.textContent = 'Speichern nicht möglich. Bitte Verbindung prüfen und erneut versuchen.';
+      elements.settingsMessage.hidden = false;
+      console.error('Dashboard settings update failed', error);
+    } finally {
+      state.saving = false;
+      elements.settingsSave.disabled = false;
+      elements.settingsCancel.disabled = false;
+      elements.settingsSave.textContent = 'Änderungen speichern';
+    }
+  }
+
   elements.canvas.addEventListener('pointermove', (event) => {
     const geometry = elements.canvas._chartGeometry;
     if (!geometry || geometry.series.length === 0) return;
@@ -352,14 +587,14 @@
     const index = Math.round(normalized * (geometry.series.length - 1));
     if (state.hoverIndex !== index) {
       state.hoverIndex = index;
-      renderChart(geometry.series);
+      renderChart(geometry.series, state.data?.settings);
     }
     showTooltip(index, event.clientY - rect.top);
   });
   elements.canvas.addEventListener('pointerleave', () => {
     state.hoverIndex = null;
     elements.tooltip.hidden = true;
-    renderChart(state.data?.series ?? []);
+    renderChart(state.data?.series ?? [], state.data?.settings);
   });
 
   elements.pointSelect.addEventListener('change', () => {
@@ -373,9 +608,17 @@
     });
   });
   elements.refresh.addEventListener('click', loadData);
+  elements.settingsButton.addEventListener('click', openSettings);
+  elements.settingsClose.addEventListener('click', closeSettings);
+  elements.settingsCancel.addEventListener('click', closeSettings);
+  elements.settingsBackdrop.addEventListener('click', closeSettings);
+  elements.settingsForm.addEventListener('submit', saveSettings);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.inspectorOpen) closeSettings();
+  });
 
   const resizeObserver = new ResizeObserver(() => {
-    if (state.data) renderChart(state.data.series ?? []);
+    if (state.data) renderChart(state.data.series ?? [], state.data.settings);
   });
   resizeObserver.observe(elements.canvas);
 

@@ -157,6 +157,8 @@ On boot, after key rotation, and periodically before upload, call the config end
 
 Apply a config only after complete validation, then durably store its `config_version`. Never accept a `max_batch_size` above the compiled protocol maximum of 500. `server_time` may be used to diagnose or correct clock drift using a platform-appropriate secure time strategy.
 
+Dashboard operators can change the inclusive temperature range and enable flag. Each save creates a higher configuration version, so firmware should fetch periodically and atomically replace the full previous config only after validating every field. Battery low/full thresholds belong only to the dashboard display and are never delivered to firmware in Sensor Protocol V1. Displayed alarm states currently create no persistent event and trigger no push or email action.
+
 ## Heartbeat request
 
 Send a heartbeat when an upload connection is made but no measurements are pending:

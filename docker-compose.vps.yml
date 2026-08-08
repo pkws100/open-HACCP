@@ -5,6 +5,9 @@ services:
       proxy:
         aliases:
           - haccp-monitor
+  demo:
+    environment:
+      DEMO_API_URL: https://haccp.pow24.org
 
 networks:
   proxy:

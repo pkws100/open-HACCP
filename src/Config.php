@@ -35,30 +35,48 @@ final readonly class Config
             'DASHBOARD_PASSWORD',
         ];
         foreach ($required as $name) {
-            if (getenv($name) === false || getenv($name) === '') {
+            if (self::environment($name) === '') {
                 throw new RuntimeException(sprintf('Required environment variable %s is missing.', $name));
             }
         }
 
-        $pepper = (string) getenv('DEVICE_API_KEY_PEPPER');
+        $pepper = self::environment('DEVICE_API_KEY_PEPPER');
         if (strlen($pepper) < 32) {
             throw new RuntimeException('DEVICE_API_KEY_PEPPER must contain at least 32 characters.');
         }
-        if (strlen((string) getenv('DASHBOARD_PASSWORD')) < 12) {
+        if (strlen(self::environment('DASHBOARD_PASSWORD')) < 12) {
             throw new RuntimeException('DASHBOARD_PASSWORD must contain at least 12 characters.');
         }
 
         return new self(
-            environment: (string) (getenv('APP_ENV') ?: 'production'),
-            debug: filter_var(getenv('APP_DEBUG') ?: 'false', FILTER_VALIDATE_BOOL),
-            dbHost: (string) getenv('DB_HOST'),
+            environment: self::environment('APP_ENV', 'production'),
+            debug: filter_var(self::environment('APP_DEBUG', 'false'), FILTER_VALIDATE_BOOL),
+            dbHost: self::environment('DB_HOST'),
             dbPort: (int) (getenv('DB_PORT') ?: 3306),
-            dbName: (string) getenv('DB_DATABASE'),
-            dbUser: (string) getenv('DB_USERNAME'),
-            dbPassword: (string) getenv('DB_PASSWORD'),
+            dbName: self::environment('DB_DATABASE'),
+            dbUser: self::environment('DB_USERNAME'),
+            dbPassword: self::environment('DB_PASSWORD'),
             deviceKeyPepper: $pepper,
-            dashboardUsername: (string) getenv('DASHBOARD_USERNAME'),
-            dashboardPassword: (string) getenv('DASHBOARD_PASSWORD'),
+            dashboardUsername: self::environment('DASHBOARD_USERNAME'),
+            dashboardPassword: self::environment('DASHBOARD_PASSWORD'),
         );
+    }
+
+    private static function environment(string $name, string $default = ''): string
+    {
+        $value = getenv($name);
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+
+        $file = getenv($name . '_FILE');
+        if (is_string($file) && $file !== '' && is_readable($file)) {
+            $contents = file_get_contents($file);
+            if (is_string($contents)) {
+                return rtrim($contents, "\r\n");
+            }
+        }
+
+        return $default;
     }
 }

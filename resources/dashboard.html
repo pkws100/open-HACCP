@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
   <title>Open HACCP Monitor</title>
-  <link rel="stylesheet" href="/assets/dashboard.css?v=2">
-  <script src="/assets/dashboard.js?v=2" defer></script>
+  <link rel="stylesheet" href="/assets/dashboard.css?v=3">
+  <script src="/assets/dashboard.js?v=3" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -60,14 +60,19 @@
             <button type="button" data-hours="72">3 T</button>
             <button type="button" data-hours="168">7 T</button>
           </div>
+          <button id="settings-button" class="settings-button" type="button" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.86 2.86-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21H9.55v-.1a1.7 1.7 0 0 0-1.1-1.56 1.7 1.7 0 0 0-1.88.34l-.06.06-2.86-2.86.06-.06A1.7 1.7 0 0 0 4.05 15a1.7 1.7 0 0 0-.6-1A1.7 1.7 0 0 0 2.35 13H2V9h.35a1.7 1.7 0 0 0 1.56-1.1 1.7 1.7 0 0 0-.34-1.88l-.06-.06L6.37 3.1l.06.06a1.7 1.7 0 0 0 1.88.34 1.7 1.7 0 0 0 1-.6A1.7 1.7 0 0 0 9.71 2H14v.1a1.7 1.7 0 0 0 1.1 1.56 1.7 1.7 0 0 0 1.88-.34l.06-.06 2.86 2.86-.06.06a1.7 1.7 0 0 0-.34 1.88 1.7 1.7 0 0 0 .6 1 1.7 1.7 0 0 0 1.1.4h.1v4H21a1.7 1.7 0 0 0-1.6 1.1Z"/></svg>
+            Einstellungen
+          </button>
         </div>
       </section>
 
       <section class="metric-strip" aria-label="Aktuelle Messwerte">
         <div class="primary-reading">
-          <span>Temperatur</span>
+          <span class="reading-label">Temperatur <i id="temperature-status" class="alarm-state">Keine Daten</i></span>
           <strong id="temperature-value">–</strong>
           <small>°C</small>
+          <em id="temperature-range">Grenzbereich nicht aktiv</em>
         </div>
         <div class="metric">
           <span>Feuchte</span>
@@ -100,6 +105,7 @@
           <div class="chart-legend" aria-label="Legende">
             <span><i class="legend-temperature"></i>Temperatur</span>
             <span><i class="legend-humidity"></i>Feuchte</span>
+            <span><i class="legend-range"></i>Grenzbereich</span>
           </div>
         </div>
         <div class="chart-wrap">
@@ -140,9 +146,9 @@
           <dl id="diagnostic-list">
             <div><dt>Firmware</dt><dd>–</dd></div>
             <div><dt>Hardware</dt><dd>–</dd></div>
-            <div><dt>Signal</dt><dd>–</dd></div>
+            <div><dt>Signal</dt><dd id="diagnostic-signal">–</dd></div>
             <div><dt>WLAN-Aufbau</dt><dd>–</dd></div>
-            <div><dt>Batterie</dt><dd>–</dd></div>
+            <div><dt>Batterie</dt><dd id="diagnostic-battery">–</dd></div>
             <div><dt>Boot-Zähler</dt><dd>–</dd></div>
           </dl>
         </aside>
@@ -154,5 +160,63 @@
       </footer>
     </main>
   </div>
+
+  <div id="settings-backdrop" class="inspector-backdrop" hidden></div>
+  <aside id="settings-inspector" class="settings-inspector" role="dialog" aria-modal="true" aria-labelledby="settings-title" hidden>
+    <form id="settings-form" novalidate>
+      <header class="inspector-head">
+        <div>
+          <p class="eyebrow">Gerätekonfiguration</p>
+          <h2 id="settings-title">Grenzwerte</h2>
+          <p id="settings-device">–</p>
+        </div>
+        <button id="settings-close" class="icon-button" type="button" aria-label="Einstellungen schließen">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>
+        </button>
+      </header>
+
+      <div id="settings-message" class="form-message" role="alert" hidden></div>
+
+      <section class="form-section" aria-labelledby="temperature-settings-title">
+        <div class="form-section-head">
+          <div>
+            <h3 id="temperature-settings-title">Temperaturalarm</h3>
+            <p>Grenzen gelten geräteweit und werden von der Firmware übernommen.</p>
+          </div>
+          <label class="switch">
+            <input id="alarm-enabled" name="alarm_enabled" type="checkbox">
+            <span aria-hidden="true"></span>
+            <b>Aktiv</b>
+          </label>
+        </div>
+        <div class="field-pair">
+          <label>Minimum °C<input id="temperature-min" name="temperature_min_c" type="number" min="-100" max="150" step="0.1" inputmode="decimal"></label>
+          <label>Maximum °C<input id="temperature-max" name="temperature_max_c" type="number" min="-100" max="150" step="0.1" inputmode="decimal"></label>
+        </div>
+        <p class="field-error" data-error-for="alarm" hidden></p>
+      </section>
+
+      <section class="form-section" aria-labelledby="battery-settings-title">
+        <div class="form-section-head">
+          <div>
+            <h3 id="battery-settings-title">Batterieanzeige</h3>
+            <p>Unterhalb „Niedrig“ erscheint die Batterie leer, ab „Voll“ vollständig geladen.</p>
+          </div>
+        </div>
+        <div class="field-pair">
+          <label>Niedrig mV<input id="battery-low" name="battery_low_mv" type="number" min="0" max="10000" step="1" inputmode="numeric"></label>
+          <label>Voll mV<input id="battery-full" name="battery_full_mv" type="number" min="0" max="10000" step="1" inputmode="numeric"></label>
+        </div>
+        <p class="field-error" data-error-for="battery" hidden></p>
+      </section>
+
+      <p class="settings-note">Diese Grenzwerte bereiten Statusanzeigen vor. Es werden noch keine Alarmereignisse oder Benachrichtigungen erzeugt.</p>
+
+      <footer class="inspector-actions">
+        <button id="settings-cancel" class="button-secondary" type="button">Abbrechen</button>
+        <button id="settings-save" class="button-primary" type="submit">Änderungen speichern</button>
+      </footer>
+    </form>
+  </aside>
 </body>
 </html>
