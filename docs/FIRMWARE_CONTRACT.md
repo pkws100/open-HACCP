@@ -1,14 +1,14 @@
 # Firmware Contract: Open HACCP Sensor Protocol V1
 
-This document is sufficient to implement a hardware-independent client for Sensor Protocol V1. It intentionally contains no ESP32 pin assignments, SHT45 driver choice, Wi-Fi provisioning, or OTA design.
+This document is sufficient to implement a hardware-independent client for Sensor Protocol V1. The concrete ESP32-S3/SHT45 onboarding reference is documented in [`DEVICE_PROVISIONING.md`](DEVICE_PROVISIONING.md) and implemented in `firmware/esp32-s3`; OTA and production manufacturing remain separate release concerns.
 
 ## Required firmware constants
 
 ```text
 PROTOCOL_VERSION = 1
-DEVICE_ID
-DEVICE_KEY
-API_BASE_URL
+DEVICE_ID                              // written by verified local onboarding
+DEVICE_KEY                             // written by verified local onboarding
+API_BASE_URL                           // written by verified local onboarding
 
 MEASUREMENT_INTERVAL_SECONDS = 300       // replaced by server config
 UPLOAD_INTERVAL_SECONDS = 21600          // replaced by server config
@@ -16,7 +16,7 @@ MAX_BATCH_SIZE = 500                     // replaced by server config, never exc
 
 FIRMWARE_VERSION
 HARDWARE_REVISION                        // prototype-a or prototype-b initially
-MEASUREMENT_POINT_CODE                   // fridge-1 initially
+MEASUREMENT_POINT_CODE                 // written by verified local onboarding
 ```
 
 `DEVICE_KEY` is a 64-character hexadecimal secret. Store it in protected device configuration and never print it to serial diagnostics in production.
@@ -28,6 +28,22 @@ API_BASE_URL = https://haccp.pow24.org
 ```
 
 Do not append a trailing slash.
+
+## First boot and local onboarding
+
+An unprovisioned ESP32 must expose a WPA2-protected SoftAP plus local setup portal, not an IBSS network. Standard phones and laptops can join this direct link without existing infrastructure. The reference SSID is `OpenHACCP-<device suffix>` and the portal is `http://192.168.4.1`. The setup password must be unique per device or controlled batch, at least eight characters, delivered on a physical label, and absent from source control and logs.
+
+The portal collects site WLAN credentials, the HTTPS API base URL, device ID/key, human-readable label, and measurement-point code. Keep candidate values only in memory until all of these succeed:
+
+1. connect to the selected site WLAN in AP+STA mode;
+2. synchronize UTC;
+3. establish HTTPS with CA-chain and hostname validation;
+4. authenticate through `GET /api/v1/device/config`;
+5. fully validate the returned config.
+
+Persist the runtime config first and mark the provisioning record ready last. Then reboot and disable the setup AP. A failed check leaves provisioning mode active and must not persist partial credentials as an operational configuration. Never send a device key in a URL or print it to serial output.
+
+A five-second factory-reset gesture may erase the provisioning record and return to setup mode. If it also erases pending measurements and sequence state—as the reference implementation does—label it as a destructive physical recovery action. Normal restart and deep sleep must preserve all state.
 
 ## HTTPS transport and HTTP contract
 
@@ -72,7 +88,7 @@ battery_mv        : integer, 0..10000
 upload_state      : pending | acknowledged
 ```
 
-Sequence state must survive reset and deep sleep. Never reuse a sequence for changed data. A batch may contain more than one measurement point, but sequences are independent per point.
+Sequence state must survive reset and deep sleep. Never reuse a sequence for changed data. A batch may contain more than one measurement point, but sequences are independent per point. The ESP32 reference intentionally compiles a 64-record durable queue and therefore caps a server-provided larger batch size at 64; a client may use a lower compiled maximum than the protocol limit.
 
 ## Batch request
 

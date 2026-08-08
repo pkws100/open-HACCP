@@ -20,6 +20,7 @@ final readonly class Config
         public string $dashboardUsername,
         public string $dashboardPassword,
         public int $maxRequestBytes = 262_144,
+        public string $publicApiBaseUrl = 'https://haccp.pow24.org',
     ) {
     }
 
@@ -47,6 +48,14 @@ final readonly class Config
         if (strlen(self::environment('DASHBOARD_PASSWORD')) < 12) {
             throw new RuntimeException('DASHBOARD_PASSWORD must contain at least 12 characters.');
         }
+        $publicApiBaseUrl = rtrim(self::environment('PUBLIC_API_BASE_URL', 'https://haccp.pow24.org'), '/');
+        if (filter_var($publicApiBaseUrl, FILTER_VALIDATE_URL) === false
+            || parse_url($publicApiBaseUrl, PHP_URL_SCHEME) !== 'https'
+            || !in_array(parse_url($publicApiBaseUrl, PHP_URL_PATH), [null, ''], true)
+            || parse_url($publicApiBaseUrl, PHP_URL_QUERY) !== null
+            || parse_url($publicApiBaseUrl, PHP_URL_FRAGMENT) !== null) {
+            throw new RuntimeException('PUBLIC_API_BASE_URL must be a plain HTTPS URL.');
+        }
 
         return new self(
             environment: self::environment('APP_ENV', 'production'),
@@ -59,6 +68,7 @@ final readonly class Config
             deviceKeyPepper: $pepper,
             dashboardUsername: self::environment('DASHBOARD_USERNAME'),
             dashboardPassword: self::environment('DASHBOARD_PASSWORD'),
+            publicApiBaseUrl: $publicApiBaseUrl,
         );
     }
 

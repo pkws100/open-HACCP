@@ -1,6 +1,6 @@
 # Open HACCP Monitor Backend
 
-Developer prototype for ESP32 temperature and humidity monitoring. The backend defines Sensor Protocol V1 and provides device ingestion, diagnostics, versioned configuration, CLI provisioning, an operator dashboard, and an optional three-device demo fleet. It intentionally has no customer accounts, tenants, persistent alarm events, notifications, or HACCP reports.
+Developer prototype for ESP32 temperature and humidity monitoring. The backend defines Sensor Protocol V1 and provides device ingestion, diagnostics, versioned configuration, one-time device onboarding, an operator dashboard, an optional three-device demo fleet, and a buildable ESP32-S3/SHT45 reference firmware. It intentionally has no customer accounts, tenants, persistent alarm events, notifications, or HACCP reports.
 
 ## Stack and architecture
 
@@ -49,9 +49,19 @@ Expected health response:
 {"status":"ok","service":"haccp-monitor-backend","database":"ok"}
 ```
 
-The local developer dashboard is available at [http://localhost:18082/dashboard](http://localhost:18082/dashboard) and uses the `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` values from `.env`. The VPS test dashboard is available at [https://haccp.pow24.org/dashboard](https://haccp.pow24.org/dashboard). This is simple operator protection, not customer identity management. The same credentials authorize the settings API.
+The local developer dashboard is available at [http://localhost:18082/dashboard](http://localhost:18082/dashboard) and uses the `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` values from `.env`. The VPS test dashboard is available at [https://haccp.pow24.org/dashboard](https://haccp.pow24.org/dashboard). This is simple operator protection, not customer identity management. The same credentials authorize the settings and device-onboarding APIs.
 
 The dashboard lists active devices only. Battery status uses configurable low/full millivolt thresholds; Wi-Fi quality uses the latest RSSI value. Versioned device settings define the inclusive normal temperature range. The current value and chart are evaluated immediately, but this prototype deliberately does not persist alarm events or send notifications.
+
+## Learn a physical device
+
+Use the plus button next to **Geräte** in the dashboard. Enter the device label, first measurement point, SHT45 type/location, and initial alarm/battery thresholds. The UID is optional; the backend generates one when it is blank. Creation is transactional and returns an HTTPS setup package whose 64-character device key is visible once only. The response is not cacheable, and only a peppered HMAC of the key is stored.
+
+On first boot, the reference ESP32 firmware exposes a WPA2 SoftAP named `OpenHACCP-…`. Join it with the unique setup password printed for that unit and open `http://192.168.4.1`. Enter the site's 2.4-GHz WLAN plus the setup package. The device keeps all candidate values in memory until it has joined the WLAN, synchronized UTC, verified the server certificate and hostname, authenticated to `GET /api/v1/device/config`, and validated the returned config. It then persists the values, reboots, and disables the setup network.
+
+Holding the BOOT/factory-reset pin for five seconds at boot returns the reference unit to onboarding. This deliberately erases credentials, config, pending readings, and sequence state. See [`docs/DEVICE_PROVISIONING.md`](docs/DEVICE_PROVISIONING.md) for the exact lifecycle, security boundary, recovery behavior, and production hardening gates.
+
+The external URL suggested by the backend comes from `PUBLIC_API_BASE_URL` and defaults to `https://haccp.pow24.org`.
 
 ## Run the three-device demo fleet
 
@@ -72,6 +82,8 @@ docker compose --profile demo run --rm demo php tools/demo_fleet.php --once --ur
 The reserved UIDs are `haccp-demo-fridge`, `haccp-demo-freezer`, and `haccp-demo-milk-cooler`. Only `haccp-demo-*` credentials may be automatically created or rotated. Provisioning is idempotent and preserves settings edited in the dashboard. The simulator never disables unrelated devices; deactivate obsolete test devices explicitly with `bin/device-disable` when an environment should display exactly the demo fleet.
 
 ## Provision a prototype
+
+The dashboard flow above is preferred for a physical unit because it creates the device, its first measurement point, initial config, and one-time setup package together. The CLI remains useful for automation and recovery.
 
 Create a device:
 
@@ -209,7 +221,27 @@ docker compose --profile test run --rm tests
 docker compose --profile test down
 ```
 
-The suite verifies health, authentication, ingestion, retries, partial rejection, unknown measurement points, ranges, config, heartbeat state, secret-free logs, sequence conflicts and gaps, migration tables, key rotation, disabled devices, request-size limits, settings validation/version conflicts, status boundaries, and demo-state behavior.
+The suite verifies health, authentication, ingestion, retries, partial rejection, unknown measurement points, ranges, config, heartbeat state, secret-free logs, sequence conflicts and gaps, migration tables, key rotation, disabled devices, request-size limits, transactional device onboarding and one-time key hashing, settings validation/version conflicts, status boundaries, and demo-state behavior.
+
+## Build the ESP32-S3 reference firmware
+
+Install PlatformIO Core, then create the ignored build-secret header:
+
+```bash
+cp firmware/esp32-s3/include/BuildSecrets.example.h \
+  firmware/esp32-s3/include/BuildSecrets.h
+```
+
+Replace the example setup password with an 8–63 character value unique to that physical unit or controlled manufacturing batch. Never commit `BuildSecrets.h`.
+
+```bash
+cd firmware/esp32-s3
+pio run
+pio run --target upload
+pio device monitor --baud 115200
+```
+
+The checked-in profile targets an ESP32-S3-DevKitC-1 with SHT45 on I²C SDA 8/SCL 9. Override the `OPEN_HACCP_*` build macros for the actual board and calibrated battery divider. The firmware is an awake bench prototype with a durable 64-record NVS queue; deep sleep, final PCB pinout, manufacturing keys, encrypted NVS/Flash Encryption, Secure Boot, OTA, and physical hardware qualification remain productization work.
 
 ## Stop and reset
 
@@ -229,7 +261,9 @@ docker compose down -v
 - [`docs/openapi.yaml`](docs/openapi.yaml): OpenAPI 3.1 API definition
 - [`docs/SENSOR_PROTOCOL_V1.md`](docs/SENSOR_PROTOCOL_V1.md): backend protocol behavior
 - [`docs/FIRMWARE_CONTRACT.md`](docs/FIRMWARE_CONTRACT.md): standalone firmware handoff
+- [`docs/DEVICE_PROVISIONING.md`](docs/DEVICE_PROVISIONING.md): local setup portal, verification, persistence and recovery
+- [`firmware/esp32-s3`](firmware/esp32-s3): buildable ESP32-S3/SHT45 onboarding reference
 
 ## Prototype limitations
 
-There is no customer user or tenant model, rate limiter, persistent alarm-event model, alert delivery, export, calibration workflow, Wi-Fi provisioning, firmware registry, OTA channel, or cloud-provider dependency. The operator dashboard is protected by environment-configured HTTP Basic credentials and can create new versioned temperature and battery settings. Device configuration remains read-only from the firmware perspective through Sensor Protocol V1. TLS is terminated by Nginx Proxy Manager in deployment, while firmware and the VPS demo use HTTPS exclusively.
+There is no customer user or tenant model, rate limiter, persistent alarm-event model, alert delivery, export, calibration workflow, firmware registry, OTA channel, or cloud-provider dependency. Device onboarding exists, but production manufacturing secrets, encrypted-at-rest device storage, physical reset protection, captive-portal qualification across phone platforms, and hardware certification are not complete. The operator dashboard is protected by environment-configured HTTP Basic credentials and can create devices plus new versioned temperature/battery settings. Device configuration remains read-only from the firmware perspective through Sensor Protocol V1. TLS is terminated by Nginx Proxy Manager in deployment, while firmware and the VPS demo use HTTPS exclusively.

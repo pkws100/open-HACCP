@@ -7,6 +7,7 @@ services:
       APP_DEBUG: ${APP_DEBUG:-false}
       APP_TIMEZONE: ${APP_TIMEZONE:-UTC}
       MIGRATE_ON_START: ${MIGRATE_ON_START:-true}
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-https://haccp.pow24.org}
       DB_HOST: db
       DB_PORT: ${DB_PORT:-3306}
       DB_DATABASE: ${DB_DATABASE}
@@ -47,6 +48,7 @@ services:
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD_FILE: /run/secrets/dashboard_password
       MIGRATE_ON_START: "false"
+      PUBLIC_API_BASE_URL: ${PUBLIC_API_BASE_URL:-https://haccp.pow24.org}
       DEMO_API_URL: ${DEMO_API_URL:-http://app}
       DEMO_INTERVAL_SECONDS: ${DEMO_INTERVAL_SECONDS:-300}
       DEMO_STATE_FILE: /var/lib/haccp-demo/state.json
@@ -128,6 +130,7 @@ services:
       DEVICE_API_KEY_PEPPER: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
       DASHBOARD_USERNAME: haccp-test
       DASHBOARD_PASSWORD: haccp-test-dashboard-password
+      PUBLIC_API_BASE_URL: https://haccp.pow24.org
     depends_on:
       test-db:
         condition: service_healthy

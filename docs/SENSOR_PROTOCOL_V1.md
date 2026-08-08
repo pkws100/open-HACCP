@@ -136,6 +136,10 @@ The normative machine-readable descriptions are [`protocol-v1.schema.json`](prot
 
 ## Operator settings outside the firmware protocol
 
+`POST /api/v1/dashboard/devices` is the Basic-authenticated operator onboarding endpoint. It atomically creates a device, its first measurement point, and config version 1. The optional UID is generated when absent. Its non-cacheable HTTP 201 response contains a 32-random-byte device key encoded as 64 hexadecimal characters exactly once; only the peppered HMAC is retained server-side. Invalid input returns `INVALID_DEVICE_PROVISIONING`, and a requested duplicate UID returns `DEVICE_UID_ALREADY_EXISTS`.
+
+The resulting setup package is transferred through the physical sensor's WPA2-protected local SoftAP portal. That local portal, site WLAN credentials, captive-portal behavior, recovery button, and NVS storage are outside Sensor Protocol V1; see [`DEVICE_PROVISIONING.md`](DEVICE_PROVISIONING.md). Normal device traffic begins only after the firmware verifies HTTPS and authenticates the config request.
+
 `PUT /api/v1/dashboard/devices/{device_uid}/settings` uses Dashboard Basic authentication and optimistic concurrency through `expected_config_version`. It is an operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature or battery ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
 
 The dashboard evaluates `normal`, `below_min`, `above_max`, `disabled`, and `no_data` directly from current measurements. These are display states only. Protocol V1 does not yet define alarm event records, hysteresis, escalation, push, or email delivery.

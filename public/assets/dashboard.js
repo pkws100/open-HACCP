@@ -10,6 +10,9 @@
     loading: false,
     saving: false,
     inspectorOpen: false,
+    enrollmentOpen: false,
+    provisioning: false,
+    setupPackage: null,
   };
 
   const elements = {
@@ -53,6 +56,33 @@
     temperatureMax: document.querySelector('#temperature-max'),
     batteryLow: document.querySelector('#battery-low'),
     batteryFull: document.querySelector('#battery-full'),
+    addDeviceButton: document.querySelector('#add-device-button'),
+    enrollmentBackdrop: document.querySelector('#enrollment-backdrop'),
+    enrollmentInspector: document.querySelector('#enrollment-inspector'),
+    enrollmentForm: document.querySelector('#enrollment-form'),
+    enrollmentClose: document.querySelector('#enrollment-close'),
+    enrollmentCancel: document.querySelector('#enrollment-cancel'),
+    enrollmentSubmit: document.querySelector('#enrollment-submit'),
+    enrollmentDone: document.querySelector('#enrollment-done'),
+    enrollmentMessage: document.querySelector('#enrollment-message'),
+    enrollmentFields: document.querySelector('#enrollment-fields'),
+    setupResult: document.querySelector('#setup-result'),
+    enrollmentName: document.querySelector('#enrollment-name'),
+    enrollmentUid: document.querySelector('#enrollment-uid'),
+    enrollmentPointName: document.querySelector('#enrollment-point-name'),
+    enrollmentPointCode: document.querySelector('#enrollment-point-code'),
+    enrollmentLocation: document.querySelector('#enrollment-location'),
+    enrollmentSensor: document.querySelector('#enrollment-sensor'),
+    enrollmentAlarmEnabled: document.querySelector('#enrollment-alarm-enabled'),
+    enrollmentTemperatureMin: document.querySelector('#enrollment-temperature-min'),
+    enrollmentTemperatureMax: document.querySelector('#enrollment-temperature-max'),
+    enrollmentBatteryLow: document.querySelector('#enrollment-battery-low'),
+    enrollmentBatteryFull: document.querySelector('#enrollment-battery-full'),
+    setupApiUrl: document.querySelector('#setup-api-url'),
+    setupDeviceUid: document.querySelector('#setup-device-uid'),
+    setupPointCode: document.querySelector('#setup-point-code'),
+    setupDeviceKey: document.querySelector('#setup-device-key'),
+    copySetupPackage: document.querySelector('#copy-setup-package'),
   };
 
   const alarmLabels = {
@@ -450,6 +480,193 @@
     window.requestAnimationFrame(() => elements.alarmEnabled.focus());
   }
 
+  function openEnrollment() {
+    state.enrollmentOpen = true;
+    state.setupPackage = null;
+    elements.enrollmentForm.reset();
+    elements.enrollmentAlarmEnabled.checked = true;
+    elements.enrollmentTemperatureMin.value = '2';
+    elements.enrollmentTemperatureMax.value = '7';
+    elements.enrollmentBatteryLow.value = '5600';
+    elements.enrollmentBatteryFull.value = '6000';
+    elements.enrollmentSensor.value = 'SHT45';
+    elements.enrollmentFields.hidden = false;
+    elements.setupResult.hidden = true;
+    elements.enrollmentCancel.hidden = false;
+    elements.enrollmentSubmit.hidden = false;
+    elements.enrollmentDone.hidden = true;
+    elements.enrollmentBackdrop.hidden = false;
+    elements.enrollmentInspector.hidden = false;
+    document.body.style.overflow = 'hidden';
+    clearEnrollmentMessages();
+    window.requestAnimationFrame(() => elements.enrollmentName.focus());
+  }
+
+  function closeEnrollment(force = false) {
+    if (state.provisioning) return;
+    if (state.setupPackage && !force && !window.confirm('Der einmalige Geräteschlüssel wird nach dem Schließen nicht erneut angezeigt. Wurden die Daten gesichert?')) return;
+    state.enrollmentOpen = false;
+    state.setupPackage = null;
+    elements.setupDeviceKey.textContent = '–';
+    elements.enrollmentBackdrop.hidden = true;
+    elements.enrollmentInspector.hidden = true;
+    document.body.style.overflow = '';
+    elements.addDeviceButton.focus();
+  }
+
+  function clearEnrollmentMessages() {
+    elements.enrollmentMessage.hidden = true;
+    elements.enrollmentMessage.textContent = '';
+    elements.enrollmentForm.querySelectorAll('[data-enrollment-error]').forEach((element) => {
+      element.hidden = true;
+      element.textContent = '';
+    });
+    elements.enrollmentForm.querySelectorAll('[aria-invalid]').forEach((element) => element.removeAttribute('aria-invalid'));
+  }
+
+  function showEnrollmentError(group, message) {
+    const output = elements.enrollmentForm.querySelector(`[data-enrollment-error="${group}"]`);
+    if (output) {
+      output.textContent = message;
+      output.hidden = false;
+    }
+  }
+
+  function enrollmentPayload() {
+    const uid = elements.enrollmentUid.value.trim();
+    return {
+      ...(uid ? { device_uid: uid } : {}),
+      name: elements.enrollmentName.value.trim(),
+      measurement_point: {
+        code: elements.enrollmentPointCode.value.trim(),
+        name: elements.enrollmentPointName.value.trim(),
+        sensor_type: elements.enrollmentSensor.value.trim(),
+        location: elements.enrollmentLocation.value.trim() || null,
+      },
+      alarm: {
+        enabled: elements.enrollmentAlarmEnabled.checked,
+        temperature_min_c: elements.enrollmentTemperatureMin.value === '' ? null : Number(elements.enrollmentTemperatureMin.value),
+        temperature_max_c: elements.enrollmentTemperatureMax.value === '' ? null : Number(elements.enrollmentTemperatureMax.value),
+      },
+      battery: {
+        low_threshold_mv: Number(elements.enrollmentBatteryLow.value),
+        full_threshold_mv: Number(elements.enrollmentBatteryFull.value),
+      },
+    };
+  }
+
+  function validateEnrollment(payload) {
+    let valid = true;
+    if (!payload.name || payload.name.length > 160 || (payload.device_uid && !/^[a-z0-9][a-z0-9-]{2,63}$/.test(payload.device_uid))) {
+      showEnrollmentError('identity', 'Bitte eine Bezeichnung und optional eine gültige UID aus Kleinbuchstaben, Ziffern und Bindestrichen eingeben.');
+      valid = false;
+    }
+    if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(payload.measurement_point.code)
+      || !payload.measurement_point.name || !payload.measurement_point.sensor_type) {
+      showEnrollmentError('measurement_point', 'Name, Sensortyp und eine kleingeschriebene Kennung aus Buchstaben, Ziffern und Bindestrichen werden benötigt.');
+      valid = false;
+    }
+    const min = payload.alarm.temperature_min_c;
+    const max = payload.alarm.temperature_max_c;
+    const low = payload.battery.low_threshold_mv;
+    const full = payload.battery.full_threshold_mv;
+    if ((payload.alarm.enabled && (min == null || max == null))
+      || (min != null && (!Number.isFinite(min) || min < -100 || min > 150))
+      || (max != null && (!Number.isFinite(max) || max < -100 || max > 150))
+      || (min != null && max != null && min >= max)
+      || !Number.isInteger(low) || !Number.isInteger(full) || low < 0 || full > 10000 || low >= full) {
+      showEnrollmentError('settings', 'Temperaturbereich und Batterieschwellen sind nicht plausibel. Minimum beziehungsweise „Niedrig“ muss kleiner als der obere Wert sein.');
+      valid = false;
+    }
+    return valid;
+  }
+
+  function renderSetupPackage(setupPackage) {
+    elements.setupApiUrl.textContent = setupPackage.api_base_url;
+    elements.setupDeviceUid.textContent = setupPackage.device_uid;
+    elements.setupPointCode.textContent = setupPackage.measurement_point;
+    elements.setupDeviceKey.textContent = setupPackage.device_key;
+    elements.enrollmentFields.hidden = true;
+    elements.setupResult.hidden = false;
+    elements.enrollmentCancel.hidden = true;
+    elements.enrollmentSubmit.hidden = true;
+    elements.enrollmentDone.hidden = false;
+    elements.enrollmentMessage.hidden = true;
+    elements.enrollmentDone.focus();
+  }
+
+  async function provisionDevice(event) {
+    event.preventDefault();
+    if (state.provisioning || state.setupPackage) return;
+    clearEnrollmentMessages();
+    const payload = enrollmentPayload();
+    if (!validateEnrollment(payload)) return;
+
+    state.provisioning = true;
+    elements.enrollmentSubmit.disabled = true;
+    elements.enrollmentCancel.disabled = true;
+    elements.enrollmentSubmit.textContent = 'Wird vorbereitet …';
+    try {
+      const response = await fetch('/api/v1/dashboard/devices', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await response.json();
+      if (!response.ok) {
+        if (response.status === 422) {
+          const fields = json.error?.details?.fields ?? {};
+          const identity = Object.entries(fields).filter(([field]) => ['name', 'device_uid'].includes(field)).map(([, message]) => message);
+          const point = Object.entries(fields).filter(([field]) => field.startsWith('measurement_point')).map(([, message]) => message);
+          const settings = Object.entries(fields).filter(([field]) => field.startsWith('alarm') || field.startsWith('battery')).map(([, message]) => message);
+          if (identity.length) showEnrollmentError('identity', identity.join(' '));
+          if (point.length) showEnrollmentError('measurement_point', point.join(' '));
+          if (settings.length) showEnrollmentError('settings', settings.join(' '));
+          elements.enrollmentMessage.textContent = 'Bitte korrigieren Sie die markierten Angaben.';
+        } else if (response.status === 409) {
+          elements.enrollmentMessage.textContent = 'Diese Geräte-UID ist bereits vergeben. Bitte eine andere UID verwenden oder das Feld automatisch erzeugen lassen.';
+        } else {
+          elements.enrollmentMessage.textContent = json.error?.message ?? `Geräteanlage fehlgeschlagen (HTTP ${response.status}).`;
+        }
+        elements.enrollmentMessage.hidden = false;
+        return;
+      }
+
+      state.setupPackage = json.setup_package;
+      renderSetupPackage(state.setupPackage);
+      state.device = json.device.device_uid;
+      state.point = json.setup_package.measurement_point;
+      await loadData();
+    } catch (error) {
+      elements.enrollmentMessage.textContent = 'Gerät konnte nicht vorbereitet werden. Bitte Verbindung prüfen und erneut versuchen.';
+      elements.enrollmentMessage.hidden = false;
+    } finally {
+      state.provisioning = false;
+      elements.enrollmentSubmit.disabled = false;
+      elements.enrollmentCancel.disabled = false;
+      elements.enrollmentSubmit.textContent = 'Gerät vorbereiten';
+    }
+  }
+
+  async function copyText(value, button) {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch (_) {
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.append(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      textarea.remove();
+    }
+    const original = button.textContent;
+    button.textContent = 'Kopiert';
+    window.setTimeout(() => { button.textContent = original; }, 1200);
+  }
+
   function closeSettings() {
     if (state.saving) return;
     state.inspectorOpen = false;
@@ -608,13 +825,30 @@
     });
   });
   elements.refresh.addEventListener('click', loadData);
+  elements.addDeviceButton.addEventListener('click', openEnrollment);
   elements.settingsButton.addEventListener('click', openSettings);
   elements.settingsClose.addEventListener('click', closeSettings);
   elements.settingsCancel.addEventListener('click', closeSettings);
   elements.settingsBackdrop.addEventListener('click', closeSettings);
   elements.settingsForm.addEventListener('submit', saveSettings);
+  elements.enrollmentClose.addEventListener('click', () => closeEnrollment());
+  elements.enrollmentCancel.addEventListener('click', () => closeEnrollment());
+  elements.enrollmentDone.addEventListener('click', () => closeEnrollment(true));
+  elements.enrollmentBackdrop.addEventListener('click', () => closeEnrollment());
+  elements.enrollmentForm.addEventListener('submit', provisionDevice);
+  elements.enrollmentForm.querySelectorAll('[data-copy]').forEach((button) => {
+    button.addEventListener('click', () => {
+      if (!state.setupPackage) return;
+      copyText(String(state.setupPackage[button.dataset.copy] ?? ''), button);
+    });
+  });
+  elements.copySetupPackage.addEventListener('click', () => {
+    if (!state.setupPackage) return;
+    copyText(JSON.stringify(state.setupPackage, null, 2), elements.copySetupPackage);
+  });
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && state.inspectorOpen) closeSettings();
+    else if (event.key === 'Escape' && state.enrollmentOpen) closeEnrollment();
   });
 
   const resizeObserver = new ResizeObserver(() => {

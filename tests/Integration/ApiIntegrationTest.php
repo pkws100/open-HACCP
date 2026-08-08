@@ -245,6 +245,78 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(1, $json['settings']['config_version']);
     }
 
+    public function testDashboardDeviceProvisioningRequiresAuthenticationAndReturnsOneTimeSetupPackage(): void
+    {
+        self::assertSame(401, $this->dashboardRequest(
+            '/api/v1/dashboard/devices',
+            false,
+            'POST',
+            $this->provisioningPayload(),
+        )->getStatusCode());
+
+        $response = $this->dashboardRequest(
+            '/api/v1/dashboard/devices',
+            true,
+            'POST',
+            $this->provisioningPayload(),
+        );
+        $json = $this->json($response);
+
+        self::assertSame(201, $response->getStatusCode());
+        self::assertStringContainsString('no-store', $response->getHeaderLine('Cache-Control'));
+        self::assertSame('haccp-provision-0001', $json['device']['device_uid']);
+        self::assertSame('https://haccp.pow24.org', $json['setup_package']['api_base_url']);
+        self::assertSame('counter-1', $json['setup_package']['measurement_point']);
+        self::assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $json['setup_package']['device_key']);
+
+        $stored = (string) $this->pdo->query(
+            "SELECT api_key_hash FROM devices WHERE device_uid = 'haccp-provision-0001'",
+        )->fetchColumn();
+        self::assertNotSame($json['setup_package']['device_key'], $stored);
+        self::assertTrue((new ApiKeyService($this->config->deviceKeyPepper))->verify($json['setup_package']['device_key'], $stored));
+        self::assertSame(1, (int) $this->pdo->query(
+            "SELECT COUNT(*) FROM measurement_points mp JOIN devices d ON d.id = mp.device_id
+             WHERE d.device_uid = 'haccp-provision-0001' AND mp.code = 'counter-1'",
+        )->fetchColumn());
+        $config = $this->pdo->query(
+            "SELECT config_version, alarm_enabled, temperature_min_c, temperature_max_c, battery_low_mv, battery_full_mv
+             FROM device_configs dc JOIN devices d ON d.id = dc.device_id WHERE d.device_uid = 'haccp-provision-0001'",
+        )->fetch();
+        self::assertSame(1, (int) $config['config_version']);
+        self::assertSame(1, (int) $config['alarm_enabled']);
+        self::assertEquals(2.0, (float) $config['temperature_min_c']);
+        self::assertEquals(7.0, (float) $config['temperature_max_c']);
+        self::assertSame(5600, (int) $config['battery_low_mv']);
+        self::assertSame(6000, (int) $config['battery_full_mv']);
+        self::assertStringNotContainsString(
+            $json['setup_package']['device_key'],
+            json_encode($this->logger->records, JSON_THROW_ON_ERROR),
+        );
+    }
+
+    public function testDashboardDeviceProvisioningCanGenerateUidAndRejectsInvalidOrDuplicateData(): void
+    {
+        $generated = $this->provisioningPayload();
+        unset($generated['device_uid']);
+        $response = $this->dashboardRequest('/api/v1/dashboard/devices', true, 'POST', $generated);
+        self::assertSame(201, $response->getStatusCode());
+        self::assertMatchesRegularExpression('/^haccp-[a-f0-9]{12}$/', $this->json($response)['device']['device_uid']);
+
+        $invalid = $this->provisioningPayload();
+        $invalid['measurement_point']['code'] = 'Nicht gültig';
+        $invalid['alarm']['temperature_min_c'] = 8.0;
+        $invalid['alarm']['temperature_max_c'] = 7.0;
+        $invalidResponse = $this->dashboardRequest('/api/v1/dashboard/devices', true, 'POST', $invalid);
+        self::assertSame(422, $invalidResponse->getStatusCode());
+        self::assertSame('INVALID_DEVICE_PROVISIONING', $this->json($invalidResponse)['error']['code']);
+
+        $payload = $this->provisioningPayload();
+        self::assertSame(201, $this->dashboardRequest('/api/v1/dashboard/devices', true, 'POST', $payload)->getStatusCode());
+        $duplicate = $this->dashboardRequest('/api/v1/dashboard/devices', true, 'POST', $payload);
+        self::assertSame(409, $duplicate->getStatusCode());
+        self::assertSame('DEVICE_UID_ALREADY_EXISTS', $this->json($duplicate)['error']['code']);
+    }
+
     public function testDashboardSettingsRequireAuthenticationAndCreateVersionUsedByFirmware(): void
     {
         $payload = $this->settingsPayload();
@@ -398,6 +470,30 @@ final class ApiIntegrationTest extends IntegrationTestCase
     {
         return [
             'expected_config_version' => 1,
+            'alarm' => [
+                'enabled' => true,
+                'temperature_min_c' => 2.0,
+                'temperature_max_c' => 7.0,
+            ],
+            'battery' => [
+                'low_threshold_mv' => 5600,
+                'full_threshold_mv' => 6000,
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function provisioningPayload(): array
+    {
+        return [
+            'device_uid' => 'haccp-provision-0001',
+            'name' => 'Kühltheke Ausgabe',
+            'measurement_point' => [
+                'code' => 'counter-1',
+                'name' => 'Kühltheke Innenraum',
+                'sensor_type' => 'SHT45',
+                'location' => 'Ausgabe',
+            ],
             'alarm' => [
                 'enabled' => true,
                 'temperature_min_c' => 2.0,

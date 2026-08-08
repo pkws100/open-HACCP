@@ -208,6 +208,65 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/dashboard/devices:
+    post:
+      operationId: provisionDashboardDevice
+      summary: Create a device, its first measurement point, and one-time setup credentials
+      description: >-
+        Operator endpoint protected by Dashboard Basic authentication. The plaintext device key exists only in
+        this non-cacheable response; the server stores its peppered HMAC-SHA-256 digest. This endpoint is not part
+        of Sensor Protocol V1.
+      security:
+        - DashboardBasic: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DashboardDeviceProvisioningRequest"
+            example:
+              device_uid: haccp-counter-0001
+              name: Kühltheke Ausgabe
+              measurement_point:
+                code: counter-1
+                name: Kühltheke Innenraum
+                sensor_type: SHT45
+                location: Ausgabe
+              alarm:
+                enabled: true
+                temperature_min_c: 2.0
+                temperature_max_c: 7.0
+              battery:
+                low_threshold_mv: 5600
+                full_threshold_mv: 6000
+      responses:
+        "201":
+          description: Device created; copy the device key before discarding this response
+          headers:
+            Cache-Control:
+              schema: { type: string, const: "no-store, private" }
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardDeviceProvisioningResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: Requested device UID already exists (`DEVICE_UID_ALREADY_EXISTS`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "415":
+          $ref: "#/components/responses/UnsupportedMediaType"
+        "422":
+          description: Provisioning values are invalid (`INVALID_DEVICE_PROVISIONING`)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorResponse" }
+        "500":
+          $ref: "#/components/responses/InternalError"
   /api/v1/dashboard/devices/{device_uid}/settings:
     put:
       operationId: updateDashboardDeviceSettings
@@ -392,6 +451,66 @@ components:
           properties:
             low_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
             full_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
+    DashboardDeviceProvisioningRequest:
+      type: object
+      additionalProperties: false
+      required: [name, measurement_point, alarm, battery]
+      properties:
+        device_uid:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{2,63}$"
+          description: Optional; the server generates `haccp-` plus 12 random hexadecimal characters when omitted.
+        name: { type: string, minLength: 1, maxLength: 160 }
+        measurement_point:
+          type: object
+          additionalProperties: false
+          required: [code, name, sensor_type]
+          properties:
+            code: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }
+            name: { type: string, minLength: 1, maxLength: 160 }
+            sensor_type: { type: string, minLength: 1, maxLength: 64 }
+            location: { type: [string, "null"], maxLength: 255 }
+        alarm:
+          type: object
+          additionalProperties: false
+          required: [enabled, temperature_min_c, temperature_max_c]
+          properties:
+            enabled: { type: boolean }
+            temperature_min_c: { type: [number, "null"], minimum: -100, maximum: 150 }
+            temperature_max_c: { type: [number, "null"], minimum: -100, maximum: 150 }
+        battery:
+          type: object
+          additionalProperties: false
+          required: [low_threshold_mv, full_threshold_mv]
+          properties:
+            low_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
+            full_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
+    DashboardDeviceProvisioningResponse:
+      type: object
+      additionalProperties: false
+      required: [success, device, setup_package, credential_notice]
+      properties:
+        success: { type: boolean, const: true }
+        device:
+          type: object
+          additionalProperties: false
+          required: [device_uid, name, status, config_version]
+          properties:
+            device_uid: { type: string }
+            name: { type: string }
+            status: { type: string, const: active }
+            config_version: { type: integer, const: 1 }
+        setup_package:
+          type: object
+          additionalProperties: false
+          required: [api_base_url, device_uid, device_key, device_label, measurement_point]
+          properties:
+            api_base_url: { type: string, format: uri, pattern: "^https://" }
+            device_uid: { type: string }
+            device_key: { type: string, pattern: "^[a-f0-9]{64}$" }
+            device_label: { type: string }
+            measurement_point: { type: string }
+        credential_notice: { type: string }
     DashboardSettingsResponse:
       type: object
       additionalProperties: false

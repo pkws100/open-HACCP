@@ -3,5 +3,7 @@
 /.runtime/
 /coverage/
 /vendor/
+/firmware/esp32-s3/include/BuildSecrets.h
+/firmware/esp32-s3/.pio/
 ._*
 **/._*
