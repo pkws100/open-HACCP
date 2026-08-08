@@ -8,6 +8,7 @@ use Haccp\Api\ApiException;
 use Haccp\Repository\DashboardRepository;
 use Haccp\Repository\DeviceConfigRepository;
 use Haccp\Repository\DeviceRepository;
+use Haccp\Repository\MeasurementPointRepository;
 use Haccp\Support\Clock;
 use PDO;
 use RuntimeException;
@@ -20,8 +21,10 @@ final readonly class DashboardSettingsService
         private PDO $pdo,
         private DeviceRepository $devices,
         private DeviceConfigRepository $configs,
+        private MeasurementPointRepository $measurementPoints,
         private DashboardRepository $dashboard,
         private DeviceStatusService $status,
+        private DeviceConfigService $deviceConfig,
         private Clock $clock,
     ) {
     }
@@ -29,11 +32,11 @@ final readonly class DashboardSettingsService
     /** @return array<string, mixed> */
     public function update(string $deviceUid, stdClass $payload): array
     {
-        $settings = $this->validate($payload);
         $device = $this->devices->findByUid($deviceUid);
         if ($device === null) {
             throw new ApiException(404, 'DASHBOARD_DEVICE_NOT_FOUND', 'Dashboard device was not found');
         }
+        $settings = $this->validate($payload, $device->id);
 
         $this->pdo->beginTransaction();
         try {
@@ -72,24 +75,28 @@ final readonly class DashboardSettingsService
             $this->dashboard->latestMeasurementsForDevice($device->id),
         );
 
+        $configuration = $this->deviceConfig->get($device);
+
         return [
             'success' => true,
             'config_version' => $version,
-            'settings' => $this->normalizedSettings($version, $settings),
+            'settings' => $this->normalizedSettings($version, $settings, $configuration),
             'alarm_status' => $this->status->worstAlarm($states),
         ];
     }
 
     /** @return array<string, mixed> */
-    private function validate(stdClass $payload): array
+    private function validate(stdClass $payload, int $deviceId): array
     {
         $fields = [];
-        foreach (array_diff(array_keys(get_object_vars($payload)), ['expected_config_version', 'alarm', 'battery']) as $field) {
+        foreach (array_diff(array_keys(get_object_vars($payload)), ['expected_config_version', 'alarm', 'battery', 'schedule']) as $field) {
             $fields[$field] = 'Unknown settings field.';
         }
         $expectedVersion = $payload->expected_config_version ?? null;
         $alarm = $payload->alarm ?? null;
         $battery = $payload->battery ?? null;
+        $hasSchedule = property_exists($payload, 'schedule');
+        $schedule = $hasSchedule ? $payload->schedule : null;
 
         if (!is_int($expectedVersion) || $expectedVersion < 1) {
             $fields['expected_config_version'] = 'Must be a positive integer.';
@@ -106,6 +113,16 @@ final readonly class DashboardSettingsService
         } else {
             foreach (array_diff(array_keys(get_object_vars($battery)), ['low_threshold_mv', 'full_threshold_mv']) as $field) {
                 $fields['battery.' . $field] = 'Unknown battery field.';
+            }
+        }
+        if ($hasSchedule && !$schedule instanceof stdClass) {
+            $fields['schedule'] = 'Must be an object when supplied.';
+        } elseif ($schedule instanceof stdClass) {
+            foreach (array_diff(
+                array_keys(get_object_vars($schedule)),
+                ['default_measurement_interval_seconds', 'upload_interval_seconds', 'measurement_points'],
+            ) as $field) {
+                $fields['schedule.' . $field] = 'Unknown schedule field.';
             }
         }
 
@@ -140,11 +157,59 @@ final readonly class DashboardSettingsService
             $fields['battery.thresholds'] = 'Low threshold must be lower than full threshold.';
         }
 
+        $measurementInterval = null;
+        $uploadInterval = null;
+        $pointIntervals = null;
+        if ($schedule instanceof stdClass) {
+            $measurementInterval = $schedule->default_measurement_interval_seconds ?? null;
+            $uploadInterval = $schedule->upload_interval_seconds ?? null;
+            $rawPointIntervals = $schedule->measurement_points ?? null;
+            if (!is_int($measurementInterval) || $measurementInterval < 30 || $measurementInterval > 86400) {
+                $fields['schedule.default_measurement_interval_seconds'] = 'Must be an integer from 30 through 86400.';
+            }
+            if (!is_int($uploadInterval) || $uploadInterval < 60 || $uploadInterval > 604800) {
+                $fields['schedule.upload_interval_seconds'] = 'Must be an integer from 60 through 604800.';
+            }
+            if (!is_array($rawPointIntervals)) {
+                $fields['schedule.measurement_points'] = 'Must be an array.';
+            } else {
+                $knownCodes = array_fill_keys(
+                    array_column($this->measurementPoints->activeForDevice($deviceId), 'code'),
+                    true,
+                );
+                $pointIntervals = [];
+                foreach ($rawPointIntervals as $index => $pointInterval) {
+                    $prefix = 'schedule.measurement_points.' . $index;
+                    if (!$pointInterval instanceof stdClass) {
+                        $fields[$prefix] = 'Must be an object.';
+                        continue;
+                    }
+                    foreach (array_diff(array_keys(get_object_vars($pointInterval)), ['measurement_point', 'interval_seconds']) as $field) {
+                        $fields[$prefix . '.' . $field] = 'Unknown measurement point schedule field.';
+                    }
+                    $code = $pointInterval->measurement_point ?? null;
+                    $interval = $pointInterval->interval_seconds ?? null;
+                    if (!is_string($code) || !isset($knownCodes[$code])) {
+                        $fields[$prefix . '.measurement_point'] = 'Must name an active measurement point of this device.';
+                    } elseif (array_key_exists($code, $pointIntervals)) {
+                        $fields[$prefix . '.measurement_point'] = 'Must not be repeated.';
+                    }
+                    if (!is_int($interval) || $interval < 30 || $interval > 86400) {
+                        $fields[$prefix . '.interval_seconds'] = 'Must be an integer from 30 through 86400.';
+                    }
+                    if (is_string($code) && isset($knownCodes[$code]) && is_int($interval)
+                        && $interval >= 30 && $interval <= 86400 && !array_key_exists($code, $pointIntervals)) {
+                        $pointIntervals[$code] = $interval;
+                    }
+                }
+            }
+        }
+
         if ($fields !== []) {
             throw new ApiException(422, 'INVALID_DEVICE_SETTINGS', 'Device settings are invalid', ['fields' => $fields]);
         }
 
-        return [
+        $validated = [
             'expected_config_version' => $expectedVersion,
             'alarm_enabled' => $enabled,
             'temperature_min_c' => $minimum === null ? null : round((float) $minimum, 3),
@@ -152,10 +217,17 @@ final readonly class DashboardSettingsService
             'battery_low_mv' => $low,
             'battery_full_mv' => $full,
         ];
+        if ($schedule instanceof stdClass) {
+            $validated['measurement_interval_seconds'] = $measurementInterval;
+            $validated['upload_interval_seconds'] = $uploadInterval;
+            $validated['measurement_point_intervals'] = $pointIntervals;
+        }
+
+        return $validated;
     }
 
-    /** @param array<string, mixed> $settings @return array<string, mixed> */
-    private function normalizedSettings(int $version, array $settings): array
+    /** @param array<string, mixed> $settings @param array<string, mixed> $configuration @return array<string, mixed> */
+    private function normalizedSettings(int $version, array $settings, array $configuration): array
     {
         return [
             'config_version' => $version,
@@ -167,6 +239,17 @@ final readonly class DashboardSettingsService
             'battery' => [
                 'low_threshold_mv' => $settings['battery_low_mv'],
                 'full_threshold_mv' => $settings['battery_full_mv'],
+            ],
+            'schedule' => [
+                'default_measurement_interval_seconds' => $configuration['measurement']['interval_seconds'],
+                'upload_interval_seconds' => $configuration['upload']['interval_seconds'],
+                'measurement_points' => array_map(
+                    static fn (array $point): array => [
+                        'measurement_point' => $point['code'],
+                        'interval_seconds' => $point['interval_seconds'],
+                    ],
+                    $configuration['measurement_points'],
+                ),
             ],
         ];
     }

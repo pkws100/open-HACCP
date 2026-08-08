@@ -59,6 +59,7 @@ final class ApplicationFactory
         $measurements = new MeasurementRepository($pdo);
         $transmissions = new TransmissionRepository($pdo);
         $configs = new DeviceConfigRepository($pdo);
+        $configService = new DeviceConfigService($configs, $measurementPoints, $clock);
         $dashboardRepository = new DashboardRepository($pdo);
         $deviceStatus = new DeviceStatusService();
         $dashboard = new DashboardService($dashboardRepository, $clock, $deviceStatus);
@@ -66,8 +67,10 @@ final class ApplicationFactory
             $pdo,
             $devices,
             $configs,
+            $measurementPoints,
             $dashboardRepository,
             $deviceStatus,
+            $configService,
             $clock,
         );
         $validator = new ProtocolValidator($clock, dirname(__DIR__) . '/docs/protocol-v1.schema.json');
@@ -89,13 +92,12 @@ final class ApplicationFactory
             $measurementPoints,
             $measurements,
             $transmissions,
-            $configs,
+            $configService,
             new GapDetector(),
             $clock,
             $logger,
         );
-        $heartbeatService = new HeartbeatService($pdo, $validator, $devices, $transmissions, $configs, $clock);
-        $configService = new DeviceConfigService($configs, $clock);
+        $heartbeatService = new HeartbeatService($pdo, $validator, $devices, $transmissions, $configService, $clock);
 
         $app = SlimAppFactory::create();
         $app->get('/health', new HealthController($pdo));

@@ -51,7 +51,7 @@ Expected health response:
 
 The local developer dashboard is available at [http://localhost:18082/dashboard](http://localhost:18082/dashboard) and uses the `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` values from `.env`. The VPS test dashboard is available at [https://haccp.pow24.org/dashboard](https://haccp.pow24.org/dashboard). This is simple operator protection, not customer identity management. The same credentials authorize the settings and device-onboarding APIs.
 
-The dashboard lists active devices only. Battery status uses configurable low/full millivolt thresholds; Wi-Fi quality uses the latest RSSI value. Versioned device settings define the inclusive normal temperature range. The current value and chart are evaluated immediately, but this prototype deliberately does not persist alarm events or send notifications.
+The dashboard lists active devices only. Battery status uses configurable low/full millivolt thresholds; Wi-Fi quality uses the latest RSSI value. Versioned device settings define the inclusive normal temperature range. The settings API can additionally version the device default sampling interval, upload cadence, and effective interval per active measurement point. The current value and chart are evaluated immediately, but this prototype deliberately does not persist alarm events or send notifications.
 
 ## Learn a physical device
 
@@ -183,6 +183,25 @@ curl -sS -X POST http://localhost:18082/api/v1/device/heartbeat \
 
 The complete measurement request and response are documented in [`docs/SENSOR_PROTOCOL_V1.md`](docs/SENSOR_PROTOCOL_V1.md). Firmware implementers should use [`docs/FIRMWARE_CONTRACT.md`](docs/FIRMWARE_CONTRACT.md).
 
+Successful measurement and heartbeat responses carry the complete current operational `configuration`, so a sleeping sensor can upload and receive a newer cadence in the same connection. `GET /api/v1/device/config` remains the onboarding/fallback endpoint. Only non-secret operational settings are returned; WLAN credentials, setup passwords, and device keys are never sent back.
+
+Operators can set a complete reporting schedule through the Basic-authenticated settings endpoint. The `expected_config_version` must match the current version. Omitting `schedule` preserves it; an empty `measurement_points` list removes point overrides.
+
+```json
+{
+  "expected_config_version": 1,
+  "alarm": {"enabled": true, "temperature_min_c": 2.0, "temperature_max_c": 7.0},
+  "battery": {"low_threshold_mv": 5600, "full_threshold_mv": 6000},
+  "schedule": {
+    "default_measurement_interval_seconds": 300,
+    "upload_interval_seconds": 21600,
+    "measurement_points": [
+      {"measurement_point": "fridge-1", "interval_seconds": 120}
+    ]
+  }
+}
+```
+
 ## Inspect stored data and logs
 
 ```bash
@@ -221,7 +240,7 @@ docker compose --profile test run --rm tests
 docker compose --profile test down
 ```
 
-The suite verifies health, authentication, ingestion, retries, partial rejection, unknown measurement points, ranges, config, heartbeat state, secret-free logs, sequence conflicts and gaps, migration tables, key rotation, disabled devices, request-size limits, transactional device onboarding and one-time key hashing, settings validation/version conflicts, status boundaries, and demo-state behavior.
+The suite verifies health, authentication, ingestion, retries, partial rejection, unknown measurement points, ranges, full piggyback config, default/per-point reporting schedules, heartbeat state, secret-free logs, sequence conflicts and gaps, migration tables, key rotation, disabled devices, request-size limits, transactional device onboarding and one-time key hashing, settings validation/version conflicts, status boundaries, and demo-state behavior.
 
 ## Build the ESP32-S3 reference firmware
 
@@ -241,7 +260,7 @@ pio run --target upload
 pio device monitor --baud 115200
 ```
 
-The checked-in profile targets an ESP32-S3-DevKitC-1 with SHT45 on I²C SDA 8/SCL 9. Override the `OPEN_HACCP_*` build macros for the actual board and calibrated battery divider. The firmware is an awake bench prototype with a durable 64-record NVS queue; deep sleep, final PCB pinout, manufacturing keys, encrypted NVS/Flash Encryption, Secure Boot, OTA, and physical hardware qualification remain productization work.
+The checked-in profile targets an ESP32-S3-DevKitC-1 with SHT45 on I²C SDA 8/SCL 9. Override the `OPEN_HACCP_*` build macros for the actual board and calibrated battery divider. The firmware is an awake bench prototype with a durable 64-record NVS queue. The exact Deep-Sleep, durable scheduler, telemetry, config-piggyback, retry, power, and test scope for the next firmware task is frozen in [`docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md`](docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md). Final PCB pinout, manufacturing keys, encrypted NVS/Flash Encryption, Secure Boot, OTA, and physical hardware qualification remain productization work.
 
 ## Stop and reset
 
@@ -261,9 +280,10 @@ docker compose down -v
 - [`docs/openapi.yaml`](docs/openapi.yaml): OpenAPI 3.1 API definition
 - [`docs/SENSOR_PROTOCOL_V1.md`](docs/SENSOR_PROTOCOL_V1.md): backend protocol behavior
 - [`docs/FIRMWARE_CONTRACT.md`](docs/FIRMWARE_CONTRACT.md): standalone firmware handoff
+- [`docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md`](docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md): next-task Deep-Sleep implementation brief and definition of done
 - [`docs/DEVICE_PROVISIONING.md`](docs/DEVICE_PROVISIONING.md): local setup portal, verification, persistence and recovery
 - [`firmware/esp32-s3`](firmware/esp32-s3): buildable ESP32-S3/SHT45 onboarding reference
 
 ## Prototype limitations
 
-There is no customer user or tenant model, rate limiter, persistent alarm-event model, alert delivery, export, calibration workflow, firmware registry, OTA channel, or cloud-provider dependency. Device onboarding exists, but production manufacturing secrets, encrypted-at-rest device storage, physical reset protection, captive-portal qualification across phone platforms, and hardware certification are not complete. The operator dashboard is protected by environment-configured HTTP Basic credentials and can create devices plus new versioned temperature/battery settings. Device configuration remains read-only from the firmware perspective through Sensor Protocol V1. TLS is terminated by Nginx Proxy Manager in deployment, while firmware and the VPS demo use HTTPS exclusively.
+There is no customer user or tenant model, rate limiter, persistent alarm-event model, alert delivery, export, calibration workflow, firmware registry, OTA channel, or cloud-provider dependency. Device onboarding exists, but production manufacturing secrets, encrypted-at-rest device storage, physical reset protection, captive-portal qualification across phone platforms, and hardware certification are not complete. The operator dashboard is protected by environment-configured HTTP Basic credentials and can create devices plus versioned temperature/battery settings; its API also controls device and per-point reporting intervals. Device configuration remains server-owned and read-only from the firmware perspective through Sensor Protocol V1. TLS is terminated by Nginx Proxy Manager in deployment, while firmware and the VPS demo use HTTPS exclusively.

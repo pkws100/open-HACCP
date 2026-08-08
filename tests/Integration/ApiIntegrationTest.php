@@ -48,6 +48,8 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(3, $json['result']['accepted']);
         self::assertSame(0, $json['result']['rejected']);
         self::assertCount(3, $json['acknowledgements']);
+        self::assertSame($json['config_version'], $json['configuration']['config_version']);
+        self::assertSame('fridge-1', $json['configuration']['measurement_points'][0]['code']);
         self::assertSame(3, (int) $this->pdo->query('SELECT COUNT(*) FROM measurements')->fetchColumn());
     }
 
@@ -97,6 +99,7 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(21600, $json['upload']['interval_seconds']);
         self::assertSame(500, $json['upload']['max_batch_size']);
         self::assertFalse($json['alarm']['enabled']);
+        self::assertSame([['code' => 'fridge-1', 'interval_seconds' => 300]], $json['measurement_points']);
     }
 
     public function testHeartbeatUpdatesDeviceDiagnostics(): void
@@ -121,6 +124,9 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(6001, (int) $row['last_battery_mv']);
         self::assertSame('0.2.0', $row['firmware_version']);
         self::assertSame('prototype-b', $row['hardware_revision']);
+        $json = $this->json($response);
+        self::assertSame($json['config_version'], $json['configuration']['config_version']);
+        self::assertSame(300, $json['configuration']['measurement_points'][0]['interval_seconds']);
     }
 
     public function testDeviceKeyNeverAppearsInApplicationLogs(): void
@@ -243,6 +249,8 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(3, $json['selected_device']['wifi']['bars']);
         self::assertSame('disabled', $json['kpis']['alarm_status']);
         self::assertSame(1, $json['settings']['config_version']);
+        self::assertSame(300, $json['settings']['schedule']['default_measurement_interval_seconds']);
+        self::assertSame('fridge-1', $json['settings']['schedule']['measurement_points'][0]['measurement_point']);
     }
 
     public function testDashboardDeviceProvisioningRequiresAuthenticationAndReturnsOneTimeSetupPackage(): void
@@ -338,13 +346,31 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(200, $response->getStatusCode());
         self::assertSame(2, $json['config_version']);
         self::assertSame(5600, $json['settings']['battery']['low_threshold_mv']);
+        self::assertSame(600, $json['settings']['schedule']['default_measurement_interval_seconds']);
+        self::assertSame(3600, $json['settings']['schedule']['upload_interval_seconds']);
+        self::assertSame(120, $json['settings']['schedule']['measurement_points'][0]['interval_seconds']);
         self::assertSame(2, (int) $this->pdo->query('SELECT COUNT(*) FROM device_configs')->fetchColumn());
 
         $firmwareConfig = $this->json($this->request('GET', '/api/v1/device/config'));
         self::assertSame(2, $firmwareConfig['config_version']);
         self::assertTrue($firmwareConfig['alarm']['enabled']);
         self::assertEquals(2.0, $firmwareConfig['alarm']['temperature_min_c']);
+        self::assertSame(600, $firmwareConfig['measurement']['interval_seconds']);
+        self::assertSame(3600, $firmwareConfig['upload']['interval_seconds']);
+        self::assertSame([['code' => 'fridge-1', 'interval_seconds' => 120]], $firmwareConfig['measurement_points']);
         self::assertArrayNotHasKey('battery', $firmwareConfig);
+
+        $heartbeat = $this->json($this->request('POST', '/api/v1/device/heartbeat', [
+            'protocol_version' => 1,
+            'firmware_version' => '0.2.0',
+            'hardware_revision' => 'prototype-b',
+            'battery_mv' => 6001,
+            'rssi_dbm' => -61,
+            'wifi_connect_ms' => 2050,
+            'boot_count' => 78,
+        ]));
+        self::assertSame(2, $heartbeat['configuration']['config_version']);
+        self::assertSame(120, $heartbeat['configuration']['measurement_points'][0]['interval_seconds']);
     }
 
     public function testDashboardSettingsRejectInvalidRangesAndVersionConflicts(): void
@@ -354,6 +380,7 @@ final class ApiIntegrationTest extends IntegrationTestCase
         $invalid['alarm']['temperature_max_c'] = 7.0;
         $invalid['battery']['low_threshold_mv'] = 6000;
         $invalid['battery']['full_threshold_mv'] = 6000;
+        $invalid['schedule']['measurement_points'][0]['measurement_point'] = 'unknown-point';
         $response = $this->dashboardRequest(
             '/api/v1/dashboard/devices/' . $this->deviceUid . '/settings',
             true,
@@ -478,6 +505,16 @@ final class ApiIntegrationTest extends IntegrationTestCase
             'battery' => [
                 'low_threshold_mv' => 5600,
                 'full_threshold_mv' => 6000,
+            ],
+            'schedule' => [
+                'default_measurement_interval_seconds' => 600,
+                'upload_interval_seconds' => 3600,
+                'measurement_points' => [
+                    [
+                        'measurement_point' => 'fridge-1',
+                        'interval_seconds' => 120,
+                    ],
+                ],
             ],
         ];
     }

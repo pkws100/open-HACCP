@@ -78,6 +78,15 @@ final readonly class DeviceConfigRepository
     public function createNext(int $deviceId, array $previous, array $settings, string $now): int
     {
         $version = (int) $previous['config_version'] + 1;
+        $configJson = $previous['config_json'];
+        if (array_key_exists('measurement_point_intervals', $settings)) {
+            $configJson = $settings['measurement_point_intervals'] === []
+                ? null
+                : json_encode(
+                    ['measurement_point_intervals' => $settings['measurement_point_intervals']],
+                    JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
+                );
+        }
         $statement = $this->pdo->prepare(
             'INSERT INTO device_configs
              (device_id, config_version, measurement_interval_seconds, upload_interval_seconds, max_batch_size,
@@ -91,15 +100,15 @@ final readonly class DeviceConfigRepository
         $statement->execute([
             'device_id' => $deviceId,
             'config_version' => $version,
-            'measurement_interval_seconds' => $previous['measurement_interval_seconds'],
-            'upload_interval_seconds' => $previous['upload_interval_seconds'],
+            'measurement_interval_seconds' => $settings['measurement_interval_seconds'] ?? $previous['measurement_interval_seconds'],
+            'upload_interval_seconds' => $settings['upload_interval_seconds'] ?? $previous['upload_interval_seconds'],
             'max_batch_size' => $previous['max_batch_size'],
             'alarm_enabled' => $settings['alarm_enabled'] ? 1 : 0,
             'temperature_min_c' => $settings['temperature_min_c'],
             'temperature_max_c' => $settings['temperature_max_c'],
             'battery_low_mv' => $settings['battery_low_mv'],
             'battery_full_mv' => $settings['battery_full_mv'],
-            'config_json' => $previous['config_json'],
+            'config_json' => $configJson,
             'created_at' => $now,
             'updated_at' => $now,
         ]);

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Haccp\Service;
 
 use Haccp\Domain\Device;
-use Haccp\Repository\DeviceConfigRepository;
 use Haccp\Repository\DeviceRepository;
 use Haccp\Repository\MeasurementPointRepository;
 use Haccp\Repository\MeasurementRepository;
@@ -14,7 +13,6 @@ use Haccp\Support\Clock;
 use PDO;
 use PDOException;
 use Psr\Log\LoggerInterface;
-use RuntimeException;
 use stdClass;
 use Throwable;
 
@@ -27,7 +25,7 @@ final readonly class MeasurementService
         private MeasurementPointRepository $measurementPoints,
         private MeasurementRepository $measurements,
         private TransmissionRepository $transmissions,
-        private DeviceConfigRepository $configs,
+        private DeviceConfigService $configService,
         private GapDetector $gapDetector,
         private Clock $clock,
         private LoggerInterface $logger,
@@ -40,10 +38,7 @@ final readonly class MeasurementService
         $batch = $this->validator->validateBatchEnvelope($payload);
         $now = $this->clock->now();
         $receivedAt = $this->clock->database($now);
-        $config = $this->configs->latest($device->id);
-        if ($config === null) {
-            throw new RuntimeException('Device configuration is missing.');
-        }
+        $configuration = $this->configService->get($device);
 
         $this->pdo->beginTransaction();
         try {
@@ -211,7 +206,8 @@ final readonly class MeasurementService
             'acknowledgements' => $acknowledgements,
             'rejections' => $rejections,
             'sequence_gaps' => $gaps,
-            'config_version' => (int) $config['config_version'],
+            'config_version' => $configuration['config_version'],
+            'configuration' => $configuration,
         ];
     }
 

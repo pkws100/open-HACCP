@@ -38,6 +38,20 @@ final readonly class MeasurementPointRepository
         return $row === false ? null : $row;
     }
 
+    /** @return list<array<string, mixed>> */
+    public function activeForDevice(int $deviceId): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT id, device_id, code, name, sensor_type
+             FROM measurement_points
+             WHERE device_id = :device_id AND active = 1
+             ORDER BY id',
+        );
+        $statement->execute(['device_id' => $deviceId]);
+
+        return $statement->fetchAll();
+    }
+
     /** @param array<string, mixed> $values */
     public function updateDemo(int $measurementPointId, array $values): void
     {

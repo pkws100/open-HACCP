@@ -40,12 +40,12 @@ The local portal is HTTP transported inside the WPA2-encrypted setup WLAN. The d
 The successful credential check returns the current versioned device config. Firmware validates the complete document and persists it as one runtime configuration containing:
 
 - `config_version`
-- measurement interval
+- default measurement interval and effective interval for every active measurement point
 - upload interval
 - compiled-cap batch size (64 in the reference implementation, even though Protocol V1 permits 500)
 - temperature alarm enabled flag and minimum/maximum
 
-The device fetches config on boot, at least every 15 minutes while connected, and whenever an ingest response announces a newer version. It replaces the stored configuration only when the response is complete and valid. Dashboard battery thresholds remain display-only and are not sent to firmware in Protocol V1.
+The device fetches config during the onboarding check. In normal operation, every successful heartbeat and measurement response also contains the complete current operational configuration; an explicit config fetch remains the fallback and periodic verification path. It replaces the stored configuration only when the response is complete, valid, newer, and durably committed as one unit. Dashboard battery thresholds remain display-only and are not sent to firmware in Protocol V1. WLAN credentials, setup password, and device key are immutable provisioning inputs and are never returned in telemetry responses.
 
 ## Recovery and factory reset
 
@@ -68,4 +68,4 @@ The buildable ESP32-S3/SHT45 reference lives in [`firmware/esp32-s3`](../firmwar
 - `HaccpClient`: verified HTTPS, config, heartbeat, batch upload, exact ACK correlation
 - `main.cpp`: SHT45 sampling, local alarm evaluation, reconnect/retry loop, periodic config refresh
 
-It is an awake prototype suitable for bench testing, not yet a power-optimized deep-sleep product firmware. Hardware validation, battery-divider calibration, manufacturing secrets, Secure Boot/Flash Encryption, OTA, and final enclosure/reset behavior remain release gates.
+It is an awake prototype suitable for bench testing, not yet a power-optimized deep-sleep product firmware. The implementation brief for the next firmware task is [`FIRMWARE_IMPLEMENTATION_HANDOFF.md`](FIRMWARE_IMPLEMENTATION_HANDOFF.md). Hardware validation, battery-divider calibration, manufacturing secrets, Secure Boot/Flash Encryption, OTA, and final enclosure/reset behavior remain release gates.

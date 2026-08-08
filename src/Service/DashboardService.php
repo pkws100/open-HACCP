@@ -80,7 +80,7 @@ final readonly class DashboardService
             'series' => [],
             'recent_measurements' => [],
             'diagnostics' => $this->transmission($this->dashboard->latestTransmission((int) $device['id'])),
-            'settings' => $this->settings($device),
+            'settings' => $this->settings($device, $points),
         ];
 
         if ($point === null) {
@@ -166,9 +166,18 @@ final readonly class DashboardService
         ];
     }
 
-    /** @param array<string, mixed> $row @return array<string, mixed> */
-    private function settings(array $row): array
+    /** @param array<string, mixed> $row @param list<array<string, mixed>> $points @return array<string, mixed> */
+    private function settings(array $row, array $points): array
     {
+        $pointIntervals = [];
+        if (is_string($row['config_json']) && $row['config_json'] !== '') {
+            $decoded = json_decode($row['config_json'], true);
+            if (is_array($decoded) && is_array($decoded['measurement_point_intervals'] ?? null)) {
+                $pointIntervals = $decoded['measurement_point_intervals'];
+            }
+        }
+        $defaultInterval = (int) $row['measurement_interval_seconds'];
+
         return [
             'config_version' => (int) $row['config_version'],
             'alarm' => [
@@ -179,6 +188,19 @@ final readonly class DashboardService
             'battery' => [
                 'low_threshold_mv' => (int) $row['battery_low_mv'],
                 'full_threshold_mv' => (int) $row['battery_full_mv'],
+            ],
+            'schedule' => [
+                'default_measurement_interval_seconds' => $defaultInterval,
+                'upload_interval_seconds' => (int) $row['upload_interval_seconds'],
+                'measurement_points' => array_map(
+                    static fn (array $point): array => [
+                        'measurement_point' => (string) $point['code'],
+                        'interval_seconds' => isset($pointIntervals[(string) $point['code']])
+                            ? (int) $pointIntervals[(string) $point['code']]
+                            : $defaultInterval,
+                    ],
+                    $points,
+                ),
             ],
         ];
     }

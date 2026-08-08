@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace Haccp\Service;
 
 use Haccp\Domain\Device;
-use Haccp\Repository\DeviceConfigRepository;
 use Haccp\Repository\DeviceRepository;
 use Haccp\Repository\TransmissionRepository;
 use Haccp\Support\Clock;
 use PDO;
-use RuntimeException;
 use stdClass;
 use Throwable;
 
@@ -21,7 +19,7 @@ final readonly class HeartbeatService
         private ProtocolValidator $validator,
         private DeviceRepository $devices,
         private TransmissionRepository $transmissions,
-        private DeviceConfigRepository $configs,
+        private DeviceConfigService $configService,
         private Clock $clock,
     ) {
     }
@@ -32,10 +30,7 @@ final readonly class HeartbeatService
         $heartbeat = $this->validator->validateHeartbeat($payload);
         $now = $this->clock->now();
         $databaseNow = $this->clock->database($now);
-        $config = $this->configs->latest($device->id);
-        if ($config === null) {
-            throw new RuntimeException('Device configuration is missing.');
-        }
+        $configuration = $this->configService->get($device);
 
         $this->pdo->beginTransaction();
         try {
@@ -79,7 +74,8 @@ final readonly class HeartbeatService
             'success' => true,
             'protocol_version' => 1,
             'server_time' => $this->clock->api($now),
-            'config_version' => (int) $config['config_version'],
+            'config_version' => $configuration['config_version'],
+            'configuration' => $configuration,
         ];
     }
 }

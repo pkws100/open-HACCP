@@ -11,6 +11,7 @@ DEVICE_KEY                             // written by verified local onboarding
 API_BASE_URL                           // written by verified local onboarding
 
 MEASUREMENT_INTERVAL_SECONDS = 300       // replaced by server config
+MEASUREMENT_POINT_INTERVALS              // effective interval per active point from server config
 UPLOAD_INTERVAL_SECONDS = 21600          // replaced by server config
 MAX_BATCH_SIZE = 500                     // replaced by server config, never exceed 500
 
@@ -90,6 +91,8 @@ upload_state      : pending | acknowledged
 
 Sequence state must survive reset and deep sleep. Never reuse a sequence for changed data. A batch may contain more than one measurement point, but sequences are independent per point. The ESP32 reference intentionally compiles a 64-record durable queue and therefore caps a server-provided larger batch size at 64; a client may use a lower compiled maximum than the protocol limit.
 
+Durably store, as one recoverable state, the current config version, the effective schedule for every point, each point's next-due deadline, the upload deadline, retry/backoff state, boot counter, monotonic sequences, and the pending queue. Wake/reset must reconstruct the same pending records and deadlines. A production firmware must size storage for the selected offline guarantee; the current 64-record awake reference is not sufficient for every combination of interval, upload cadence, and outage duration.
+
 ## Batch request
 
 All fields below are required. Maximum `measurements` length is the smaller of the server config and 500.
@@ -162,6 +165,9 @@ On boot, after key rotation, and periodically before upload, call the config end
   "config_version": 1,
   "server_time": "2026-08-07T16:00:00Z",
   "measurement": {"interval_seconds": 300},
+  "measurement_points": [
+    {"code": "fridge-1", "interval_seconds": 120}
+  ],
   "upload": {"interval_seconds": 21600, "max_batch_size": 500},
   "alarm": {
     "enabled": false,
@@ -171,9 +177,13 @@ On boot, after key rotation, and periodically before upload, call the config end
 }
 ```
 
-Apply a config only after complete validation, then durably store its `config_version`. Never accept a `max_batch_size` above the compiled protocol maximum of 500. `server_time` may be used to diagnose or correct clock drift using a platform-appropriate secure time strategy.
+`measurement.interval_seconds` is the default. `measurement_points` contains every active logical point and its effective interval after server-side overrides. Accept measurement intervals only from 30 through 86400 seconds and upload intervals only from 60 through 604800 seconds. A firmware build may support only its provisioned physical points, but it must not silently reinterpret an unknown point as a known sensor.
 
-Dashboard operators can change the inclusive temperature range and enable flag. Each save creates a higher configuration version, so firmware should fetch periodically and atomically replace the full previous config only after validating every field. Battery low/full thresholds belong only to the dashboard display and are never delivered to firmware in Sensor Protocol V1. Displayed alarm states currently create no persistent event and trigger no push or email action.
+Apply a config only after complete validation, then atomically and durably store all fields plus its `config_version`. Recompute future deadlines without discarding an already-due sample or upload. Never accept a `max_batch_size` above the compiled protocol maximum of 500. `server_time` may be used to diagnose or correct clock drift using a platform-appropriate secure time strategy.
+
+Dashboard operators can change the inclusive temperature range, enable flag, device default measurement interval, upload interval, and measurement-point overrides. Each save creates a higher configuration version. Battery low/full thresholds belong only to the dashboard display and are never delivered to firmware in Sensor Protocol V1. Displayed alarm states currently create no persistent event and trigger no push or email action.
+
+Successful batch and heartbeat responses contain the same complete object as `configuration`. Prefer this piggyback when its version is newer, validate it independently, and persist it atomically after response identity/ACK processing. If it is absent or invalid, retain the last known-good config and use `GET /api/v1/device/config` on the next eligible connection. Never expect WLAN credentials, device keys, setup passwords, or other provisioning secrets in an operational response; the backend deliberately never returns them.
 
 ## Heartbeat request
 
@@ -191,7 +201,7 @@ Send a heartbeat when an upload connection is made but no measurements are pendi
 }
 ```
 
-A valid response contains `success: true`, `protocol_version: 1`, `server_time`, and `config_version`. A heartbeat never acknowledges measurement data.
+A valid response contains `success: true`, `protocol_version: 1`, `server_time`, `config_version`, and the full current `configuration`. A heartbeat never acknowledges measurement data.
 
 ## Failure and retry policy
 
@@ -212,13 +222,17 @@ Recommended retry delays are 1, 5, 15, 30, then 60 minutes, with jitter. Cap sub
 ```text
 BOOT / RTC WAKE
     restore durable sequence, config, pending records, retry state
-    read sensor and battery
-    if values valid:
-        sequence[point] += 1 and persist sequence
-        persist new pending measurement
+    determine which measurement-point deadlines are due
+    for each due physical point:
+        power and read sensor plus battery
+        if values valid:
+            sequence[point] += 1 and persist sequence
+            persist new pending temperature/humidity/battery measurement
+        advance that point deadline from its server-provided effective interval
 
-    if upload not due and pending storage not near capacity:
-        deep sleep
+    determine whether upload/config refresh/retry is due or storage is near capacity
+    if no network work is due:
+        flush durable state and deep sleep until the earliest due deadline
 
     connect Wi-Fi
     if connection fails:
@@ -232,10 +246,6 @@ BOOT / RTC WAKE
         keep all pending data
         schedule backoff
         deep sleep
-
-    optionally GET config
-    if config response is valid and version is newer:
-        persist complete config atomically
 
     if no pending measurements:
         POST heartbeat
@@ -253,10 +263,22 @@ BOOT / RTC WAKE
         else:
             retain every record
 
+    validate the response configuration independently
+    if its config version is newer:
+        persist complete config atomically and recompute deadlines
+    if no valid response configuration was available and config refresh is due:
+        GET config and apply the same validation rules
+
     compact acknowledged storage only after durable ACK state is committed
     disconnect Wi-Fi
-    deep sleep
+    power down sensor/radio peripherals
+    flush queue, schedule, counters, config, and retry state
+    deep sleep until the earliest due deadline
 ```
+
+The earliest due deadline is the minimum of all point measurement deadlines, upload deadline, retry deadline, and periodic explicit-config refresh deadline. Account for clock correction and timer limits, use bounded jitter for network retries, and never use a configuration update to erase pending measurements or reset sequences.
+
+The exact next implementation scope and definition of done are in [`FIRMWARE_IMPLEMENTATION_HANDOFF.md`](FIRMWARE_IMPLEMENTATION_HANDOFF.md).
 
 Power loss is permitted at every arrow. After restart the device must either resend a pending record or know from durable state that it received a valid explicit acknowledgement. Resending is safe and expected.
 

@@ -87,11 +87,28 @@ A syntactically and structurally valid batch receives HTTP 200 even if individua
     {"index": 1, "measurement_point": "fridge-1", "sequence": 1002, "code": "INVALID_HUMIDITY", "message": "humidity_rh must be between 0 and 100"}
   ],
   "sequence_gaps": [],
-  "config_version": 1
+  "config_version": 1,
+  "configuration": {
+    "protocol_version": 1,
+    "config_version": 1,
+    "server_time": "2026-08-07T16:00:02Z",
+    "measurement": {"interval_seconds": 300},
+    "measurement_points": [
+      {"code": "fridge-1", "interval_seconds": 300}
+    ],
+    "upload": {"interval_seconds": 21600, "max_batch_size": 500},
+    "alarm": {
+      "enabled": false,
+      "temperature_min_c": null,
+      "temperature_max_c": null
+    }
+  }
 }
 ```
 
 Only explicit `accepted` and `duplicate` acknowledgements authorize firmware to remove or mark local records as sent. `last_sequence` and `sequence_gaps` are informational and must never be used as deletion authorization.
+
+The full current `configuration` is piggybacked on every successful authenticated batch response. Apply it only after ACK correlation and independent complete config validation; config processing never changes the meaning of acknowledgements. The duplicated top-level `config_version` remains for older V1 clients.
 
 ## Idempotency and sequence rules
 
@@ -105,11 +122,13 @@ Sequences increase monotonically per measurement point. The database identity is
 
 ## Config and heartbeat
 
-`GET /api/v1/device/config` returns the current configuration. Version 1 defaults are 300 seconds measurement interval, 21600 seconds upload interval, and 500 measurements per batch.
+`GET /api/v1/device/config` returns the current configuration. Version 1 defaults are 300 seconds measurement interval, 21600 seconds upload interval, and 500 measurements per batch. `measurement.interval_seconds` is the device default. Every active logical point also appears in `measurement_points` with its effective interval; a point-specific server override replaces the default for that point. Measurement intervals are 30 through 86400 seconds and upload intervals are 60 through 604800 seconds.
 
-An authenticated operator may create a new version through the separate dashboard settings API. Firmware therefore treats a higher `config_version` as an atomic replacement and receives the updated `alarm.enabled`, `temperature_min_c`, and `temperature_max_c` values on its next config fetch. The normal range is inclusive. Dashboard battery display thresholds are intentionally not part of Sensor Protocol V1 and do not appear in the firmware config response.
+An authenticated operator may create a new version through the separate dashboard settings API. Firmware therefore treats a higher `config_version` as an atomic replacement and receives reporting intervals plus the updated `alarm.enabled`, `temperature_min_c`, and `temperature_max_c`. The normal range is inclusive. Dashboard battery display thresholds are intentionally not part of Sensor Protocol V1 and do not appear in the firmware config response.
 
-`POST /api/v1/device/heartbeat` requires protocol version, firmware and hardware versions, battery, RSSI, Wi-Fi connection duration, and boot counter. It updates device status and creates a diagnostic transmission without measurements.
+`POST /api/v1/device/heartbeat` requires protocol version, firmware and hardware versions, battery, RSSI, Wi-Fi connection duration, and boot counter. It updates device status and creates a diagnostic transmission without measurements. Its successful response also contains the full current `configuration`, so a wake cycle can report diagnostics and update scheduling in one HTTPS exchange.
+
+Only operational, non-secret configuration is returned. WLAN credentials, device keys, setup passwords, and other provisioning secrets are never included in config, heartbeat, or batch responses. `GET /config` remains the authoritative fallback and explicit configuration check.
 
 ## HTTP and error codes
 
@@ -140,6 +159,23 @@ The normative machine-readable descriptions are [`protocol-v1.schema.json`](prot
 
 The resulting setup package is transferred through the physical sensor's WPA2-protected local SoftAP portal. That local portal, site WLAN credentials, captive-portal behavior, recovery button, and NVS storage are outside Sensor Protocol V1; see [`DEVICE_PROVISIONING.md`](DEVICE_PROVISIONING.md). Normal device traffic begins only after the firmware verifies HTTPS and authenticates the config request.
 
-`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses Dashboard Basic authentication and optimistic concurrency through `expected_config_version`. It is an operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature or battery ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
+`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses Dashboard Basic authentication and optimistic concurrency through `expected_config_version`. It is an operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature, battery, or schedule ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
+
+The optional `schedule` object changes the device default measurement interval, upload interval, and a complete list of point-specific overrides. Omitting it preserves the preceding schedule. Every listed point must currently be active for that device; duplicate or unknown point codes are rejected. An empty `measurement_points` list removes all overrides so every point inherits the default.
+
+```json
+{
+  "expected_config_version": 1,
+  "alarm": {"enabled": true, "temperature_min_c": 2.0, "temperature_max_c": 7.0},
+  "battery": {"low_threshold_mv": 5600, "full_threshold_mv": 6000},
+  "schedule": {
+    "default_measurement_interval_seconds": 300,
+    "upload_interval_seconds": 21600,
+    "measurement_points": [
+      {"measurement_point": "fridge-1", "interval_seconds": 120}
+    ]
+  }
+}
+```
 
 The dashboard evaluates `normal`, `below_min`, `above_max`, `disabled`, and `no_data` directly from current measurements. These are display states only. Protocol V1 does not yet define alarm event records, hysteresis, escalation, push, or email delivery.

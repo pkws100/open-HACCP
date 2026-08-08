@@ -29,6 +29,8 @@ final class DocumentationConsistencyTest extends TestCase
         self::assertStringContainsString('Only then mark that specific local record acknowledged', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
         self::assertStringContainsString('establish HTTPS and verify CA chain + hostname', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
         self::assertStringContainsString('Battery low/full thresholds belong only to the dashboard display', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
+        self::assertStringContainsString('earliest due deadline', (string) file_get_contents($root . '/docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md'));
+        self::assertStringContainsString('configuration', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
         self::assertStringContainsString('DEVICE_CONFIG_VERSION_CONFLICT', (string) file_get_contents($root . '/docs/SENSOR_PROTOCOL_V1.md'));
         self::assertStringContainsString('WPA2-protected Wi-Fi SoftAP', (string) file_get_contents($root . '/docs/DEVICE_PROVISIONING.md'));
         self::assertStringContainsString('plaintext device key exists only', $openApi['paths']['/api/v1/dashboard/devices']['post']['description']);

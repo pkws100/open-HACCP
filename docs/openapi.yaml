@@ -93,6 +93,15 @@ paths:
                     message: humidity_rh must be between 0 and 100
                 sequence_gaps: []
                 config_version: 1
+                configuration:
+                  protocol_version: 1
+                  config_version: 1
+                  server_time: "2026-08-07T16:00:02Z"
+                  measurement: { interval_seconds: 300 }
+                  measurement_points:
+                    - { code: fridge-1, interval_seconds: 300 }
+                  upload: { interval_seconds: 21600, max_batch_size: 500 }
+                  alarm: { enabled: false, temperature_min_c: null, temperature_max_c: null }
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -167,6 +176,9 @@ paths:
                 server_time: "2026-08-07T16:00:00Z"
                 measurement:
                   interval_seconds: 300
+                measurement_points:
+                  - code: fridge-1
+                    interval_seconds: 300
                 upload:
                   interval_seconds: 21600
                   max_batch_size: 500
@@ -270,8 +282,10 @@ paths:
   /api/v1/dashboard/devices/{device_uid}/settings:
     put:
       operationId: updateDashboardDeviceSettings
-      summary: Create a new version of device alarm and battery display settings
-      description: Operator endpoint protected by Dashboard Basic authentication; not part of Sensor Protocol V1.
+      summary: Create a new version of device alarm, battery, and optional reporting schedule settings
+      description: >-
+        Operator endpoint protected by Dashboard Basic authentication; not part of Sensor Protocol V1. If schedule
+        is omitted, the existing device and measurement-point intervals are preserved.
       security:
         - DashboardBasic: []
       parameters:
@@ -296,6 +310,12 @@ paths:
               battery:
                 low_threshold_mv: 5600
                 full_threshold_mv: 6000
+              schedule:
+                default_measurement_interval_seconds: 300
+                upload_interval_seconds: 21600
+                measurement_points:
+                  - measurement_point: fridge-1
+                    interval_seconds: 300
       responses:
         "200":
           description: A complete new configuration version was created
@@ -320,7 +340,7 @@ paths:
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
         "422":
-          description: Temperature or battery settings are invalid
+          description: Temperature, battery, or schedule settings are invalid
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -349,7 +369,7 @@ components:
         database: { type: string, const: ok }
     BatchResponse:
       type: object
-      required: [success, protocol_version, server_time, batch_id, result, acknowledgements, rejections, sequence_gaps, config_version]
+      required: [success, protocol_version, server_time, batch_id, result, acknowledgements, rejections, sequence_gaps, config_version, configuration]
       properties:
         success: { type: boolean, const: true }
         protocol_version: { type: integer, const: 1 }
@@ -395,19 +415,23 @@ components:
               from_sequence: { type: integer, minimum: 1 }
               to_sequence: { type: integer, minimum: 1 }
         config_version: { type: integer, minimum: 1 }
+        configuration:
+          $ref: "#/components/schemas/DeviceConfigResponse"
     HeartbeatRequest:
       $ref: "./protocol-v1.schema.json#/$defs/heartbeat"
     HeartbeatResponse:
       type: object
-      required: [success, protocol_version, server_time, config_version]
+      required: [success, protocol_version, server_time, config_version, configuration]
       properties:
         success: { type: boolean, const: true }
         protocol_version: { type: integer, const: 1 }
         server_time: { type: string }
         config_version: { type: integer, minimum: 1 }
+        configuration:
+          $ref: "#/components/schemas/DeviceConfigResponse"
     DeviceConfigResponse:
       type: object
-      required: [protocol_version, config_version, server_time, measurement, upload, alarm]
+      required: [protocol_version, config_version, server_time, measurement, measurement_points, upload, alarm]
       properties:
         protocol_version: { type: integer, const: 1 }
         config_version: { type: integer, minimum: 1 }
@@ -416,12 +440,21 @@ components:
           type: object
           required: [interval_seconds]
           properties:
-            interval_seconds: { type: integer, minimum: 1 }
+            interval_seconds: { type: integer, minimum: 30, maximum: 86400 }
+        measurement_points:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [code, interval_seconds]
+            properties:
+              code: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }
+              interval_seconds: { type: integer, minimum: 30, maximum: 86400 }
         upload:
           type: object
           required: [interval_seconds, max_batch_size]
           properties:
-            interval_seconds: { type: integer, minimum: 1 }
+            interval_seconds: { type: integer, minimum: 60, maximum: 604800 }
             max_batch_size: { type: integer, minimum: 1, maximum: 500 }
         alarm:
           type: object
@@ -451,6 +484,24 @@ components:
           properties:
             low_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
             full_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
+        schedule:
+          $ref: "#/components/schemas/DashboardSchedule"
+    DashboardSchedule:
+      type: object
+      additionalProperties: false
+      required: [default_measurement_interval_seconds, upload_interval_seconds, measurement_points]
+      properties:
+        default_measurement_interval_seconds: { type: integer, minimum: 30, maximum: 86400 }
+        upload_interval_seconds: { type: integer, minimum: 60, maximum: 604800 }
+        measurement_points:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [measurement_point, interval_seconds]
+            properties:
+              measurement_point: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }
+              interval_seconds: { type: integer, minimum: 30, maximum: 86400 }
     DashboardDeviceProvisioningRequest:
       type: object
       additionalProperties: false
@@ -520,7 +571,7 @@ components:
         config_version: { type: integer, minimum: 2 }
         settings:
           type: object
-          required: [config_version, alarm, battery]
+          required: [config_version, alarm, battery, schedule]
           additionalProperties: false
           properties:
             config_version: { type: integer, minimum: 2 }
@@ -537,6 +588,8 @@ components:
               properties:
                 low_threshold_mv: { type: integer }
                 full_threshold_mv: { type: integer }
+            schedule:
+              $ref: "#/components/schemas/DashboardSchedule"
         alarm_status:
           type: string
           enum: [normal, below_min, above_max, disabled, no_data]

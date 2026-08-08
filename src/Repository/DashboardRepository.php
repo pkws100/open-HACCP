@@ -20,7 +20,8 @@ final readonly class DashboardRepository
                     d.last_seen_at, d.last_rssi_dbm, d.last_battery_mv,
                     (SELECT COUNT(*) FROM measurement_points mp WHERE mp.device_id = d.id AND mp.active = 1) AS measurement_point_count,
                     dc.config_version, dc.alarm_enabled, dc.temperature_min_c, dc.temperature_max_c,
-                    dc.battery_low_mv, dc.battery_full_mv
+                    dc.battery_low_mv, dc.battery_full_mv, dc.measurement_interval_seconds,
+                    dc.upload_interval_seconds, dc.config_json
              FROM devices d
              INNER JOIN device_configs dc ON dc.device_id = d.id
                 AND dc.config_version = (SELECT MAX(latest.config_version) FROM device_configs latest WHERE latest.device_id = d.id)
@@ -38,7 +39,8 @@ final readonly class DashboardRepository
             'SELECT d.id, d.device_uid, d.name, d.status, d.hardware_revision, d.firmware_version,
                     d.last_seen_at, d.last_rssi_dbm, d.last_battery_mv,
                     dc.config_version, dc.alarm_enabled, dc.temperature_min_c, dc.temperature_max_c,
-                    dc.battery_low_mv, dc.battery_full_mv
+                    dc.battery_low_mv, dc.battery_full_mv, dc.measurement_interval_seconds,
+                    dc.upload_interval_seconds, dc.config_json
              FROM devices d
              INNER JOIN device_configs dc ON dc.device_id = d.id
                 AND dc.config_version = (SELECT MAX(latest.config_version) FROM device_configs latest WHERE latest.device_id = d.id)
