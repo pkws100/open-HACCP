@@ -55,6 +55,19 @@ abstract class IntegrationTestCase extends TestCase
         return $this->app->handle($request);
     }
 
+    protected function dashboardRequest(string $path, bool $authenticated = true): ResponseInterface
+    {
+        $request = (new ServerRequestFactory())->createServerRequest('GET', $path);
+        if ($authenticated) {
+            $request = $request->withHeader(
+                'Authorization',
+                'Basic ' . base64_encode($this->config->dashboardUsername . ':' . $this->config->dashboardPassword),
+            );
+        }
+
+        return $this->app->handle($request);
+    }
+
     /** @return array<string, mixed> */
     protected function json(ResponseInterface $response): array
     {

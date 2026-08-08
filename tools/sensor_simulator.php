@@ -10,7 +10,7 @@ $options = getopt('', [
 
 $device = $options['device'] ?? '';
 $key = $options['key'] ?? getenv('DEVICE_KEY');
-$url = rtrim((string) ($options['url'] ?? 'http://localhost:8080'), '/');
+$url = rtrim((string) ($options['url'] ?? 'http://localhost'), '/');
 $mode = (string) ($options['mode'] ?? 'batch');
 $point = (string) ($options['measurement-point'] ?? 'fridge-1');
 $count = (int) ($options['count'] ?? 3);
@@ -22,7 +22,7 @@ $resend = array_key_exists('resend', $options);
 
 if (!is_string($device) || $device === '' || !is_string($key) || $key === ''
     || !in_array($mode, ['batch', 'heartbeat', 'both'], true) || $count < 1 || $count > 500) {
-    fwrite(STDERR, "Usage: php tools/sensor_simulator.php --device=haccp-p01-0001 --key=SECRET [--url=http://localhost:8080] [--mode=batch|heartbeat|both] [--count=3] [--resend]\n");
+    fwrite(STDERR, "Usage: php tools/sensor_simulator.php --device=haccp-p01-0001 --key=SECRET [--url=http://localhost] [--mode=batch|heartbeat|both] [--count=3] [--resend]\n");
     exit(2);
 }
 
@@ -52,6 +52,11 @@ $send = static function (string $endpoint, array $payload) use ($device, $key, $
             'content' => json_encode($payload, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
             'ignore_errors' => true,
             'timeout' => 15,
+        ],
+        'ssl' => [
+            'verify_peer' => true,
+            'verify_peer_name' => true,
+            'allow_self_signed' => false,
         ],
     ]);
     $body = file_get_contents($url . $endpoint, false, $context);

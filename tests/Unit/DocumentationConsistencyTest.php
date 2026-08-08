@@ -22,6 +22,9 @@ final class DocumentationConsistencyTest extends TestCase
         self::assertArrayHasKey('/api/v1/device/measurements', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/device/heartbeat', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/device/config', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/overview', $openApi['paths']);
+        self::assertSame('https://haccp.pow24.org', $openApi['servers'][0]['url']);
         self::assertStringContainsString('Only then mark that specific local record acknowledged', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
+        self::assertStringContainsString('establish HTTPS and verify CA chain + hostname', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
     }
 }

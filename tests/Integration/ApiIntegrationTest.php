@@ -205,4 +205,31 @@ final class ApiIntegrationTest extends IntegrationTestCase
 
         self::assertCount(5, $statement->fetchAll());
     }
+
+    public function testDashboardRequiresBasicAuthentication(): void
+    {
+        $response = $this->dashboardRequest('/dashboard', false);
+
+        self::assertSame(401, $response->getStatusCode());
+        self::assertSame('DASHBOARD_AUTHENTICATION_REQUIRED', $this->json($response)['error']['code']);
+        self::assertStringContainsString('Basic realm=', $response->getHeaderLine('WWW-Authenticate'));
+    }
+
+    public function testDashboardRendersAndOverviewReturnsStoredMeasurements(): void
+    {
+        $html = $this->dashboardRequest('/dashboard');
+        self::assertSame(200, $html->getStatusCode());
+        self::assertStringContainsString('Open HACCP Monitor', (string) $html->getBody());
+
+        $this->request('POST', '/api/v1/device/measurements', $this->batch());
+        $overview = $this->dashboardRequest('/api/v1/dashboard/overview?hours=24');
+        $json = $this->json($overview);
+
+        self::assertSame(200, $overview->getStatusCode());
+        self::assertSame($this->deviceUid, $json['selection']['device_uid']);
+        self::assertSame('fridge-1', $json['selection']['measurement_point']);
+        self::assertSame(3, $json['kpis']['measurement_count']);
+        self::assertCount(3, $json['series']);
+        self::assertCount(3, $json['recent_measurements']);
+    }
 }

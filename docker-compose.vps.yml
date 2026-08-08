@@ -1,0 +1,12 @@
+services:
+  app:
+    networks:
+      default:
+      proxy:
+        aliases:
+          - haccp-monitor
+
+networks:
+  proxy:
+    external: true
+    name: proxy

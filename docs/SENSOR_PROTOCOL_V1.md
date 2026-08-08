@@ -6,12 +6,15 @@ Sensor Protocol V1 is the stable HTTP/JSON contract between the Open HACCP backe
 
 ## Transport and authentication
 
+- Production base URL: `https://haccp.pow24.org`
 - Base path: `/api/v1`
 - Media type: `application/json`
 - Maximum request body: 256 KiB
 - Maximum batch size: 500 measurements
 - All timestamps: RFC 3339 UTC ending in `Z`
 - Authenticated requests require both `X-Device-ID` and `X-Device-Key`.
+
+Production devices must use HTTPS with TLS 1.2 or newer, validate the complete certificate chain against a maintained CA trust store, verify the requested hostname, and reject expired, untrusted, or mismatched certificates. Plain HTTP is permitted only for local development and the isolated reverse-proxy-to-container hop. The payload remains HTTP/JSON inside the TLS connection.
 
 The device key contains 32 random bytes encoded as 64 hexadecimal characters. The server stores only an HMAC-SHA-256 digest protected by `DEVICE_API_KEY_PEPPER`. Missing, invalid, rotated, and disabled credentials all return the same `DEVICE_AUTHENTICATION_FAILED` response.
 

@@ -21,7 +21,19 @@ MEASUREMENT_POINT_CODE                   // fridge-1 initially
 
 `DEVICE_KEY` is a 64-character hexadecimal secret. Store it in protected device configuration and never print it to serial diagnostics in production.
 
-## HTTP contract
+For the VPS test and deployed firmware, set:
+
+```text
+API_BASE_URL = https://haccp.pow24.org
+```
+
+Do not append a trailing slash.
+
+## HTTPS transport and HTTP contract
+
+Deployment transport is HTTPS only. The sensor must validate the server certificate chain against a maintained public CA trust store and verify that the certificate hostname matches `haccp.pow24.org`. Never ship firmware with an insecure TLS mode, disabled peer verification, a hard-coded leaf certificate, or an expired CA bundle. Support TLS 1.2 or newer and synchronize UTC time before certificate validation.
+
+The application protocol inside the encrypted connection is HTTP/JSON. TLS terminates at the reverse proxy; the proxy-to-application Docker hop may use HTTP and is not visible to the sensor.
 
 Use `API_BASE_URL` plus these paths:
 
@@ -192,6 +204,13 @@ BOOT / RTC WAKE
 
     connect Wi-Fi
     if connection fails:
+        keep all pending data
+        schedule backoff
+        deep sleep
+
+    synchronize UTC time using the platform's trusted time source
+    establish HTTPS and verify CA chain + hostname
+    if DNS, time synchronization, TLS, or certificate validation fails:
         keep all pending data
         schedule backoff
         deep sleep

@@ -6,19 +6,24 @@ namespace Haccp;
 
 use Haccp\Api\ApiException;
 use Haccp\Controller\DeviceConfigController;
+use Haccp\Controller\DashboardController;
+use Haccp\Controller\DashboardDataController;
 use Haccp\Controller\HealthController;
 use Haccp\Controller\HeartbeatController;
 use Haccp\Controller\MeasurementController;
 use Haccp\Middleware\DeviceAuthenticationMiddleware;
+use Haccp\Middleware\DashboardAuthenticationMiddleware;
 use Haccp\Middleware\RequestIdMiddleware;
 use Haccp\Middleware\RequestLoggingMiddleware;
 use Haccp\Repository\DeviceConfigRepository;
+use Haccp\Repository\DashboardRepository;
 use Haccp\Repository\DeviceRepository;
 use Haccp\Repository\MeasurementPointRepository;
 use Haccp\Repository\MeasurementRepository;
 use Haccp\Repository\TransmissionRepository;
 use Haccp\Service\ApiKeyService;
 use Haccp\Service\DeviceConfigService;
+use Haccp\Service\DashboardService;
 use Haccp\Service\GapDetector;
 use Haccp\Service\HeartbeatService;
 use Haccp\Service\MeasurementService;
@@ -49,6 +54,7 @@ final class ApplicationFactory
         $measurements = new MeasurementRepository($pdo);
         $transmissions = new TransmissionRepository($pdo);
         $configs = new DeviceConfigRepository($pdo);
+        $dashboard = new DashboardService(new DashboardRepository($pdo), $clock);
         $validator = new ProtocolValidator($clock, dirname(__DIR__) . '/docs/protocol-v1.schema.json');
         $keys = new ApiKeyService($config->deviceKeyPepper);
 
@@ -69,6 +75,14 @@ final class ApplicationFactory
 
         $app = SlimAppFactory::create();
         $app->get('/health', new HealthController($pdo));
+        $dashboardAuthentication = new DashboardAuthenticationMiddleware(
+            $config->dashboardUsername,
+            $config->dashboardPassword,
+        );
+        $app->get('/dashboard', new DashboardController(dirname(__DIR__) . '/resources/dashboard.html'))
+            ->add($dashboardAuthentication);
+        $app->get('/api/v1/dashboard/overview', new DashboardDataController($dashboard))
+            ->add($dashboardAuthentication);
         $app->group('/api/v1/device', function ($group) use ($measurementService, $heartbeatService, $configService, $config): void {
             $group->post('/measurements', new MeasurementController($measurementService, $config));
             $group->post('/heartbeat', new HeartbeatController($heartbeatService, $config));

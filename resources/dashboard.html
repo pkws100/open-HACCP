@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Open HACCP Monitor</title>
+  <link rel="stylesheet" href="/assets/dashboard.css?v=2">
+  <script src="/assets/dashboard.js?v=2" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/dashboard" aria-label="Open HACCP Monitor">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" role="img">
+          <path d="M16 3v26M5 9l22 14M27 9 5 23M10 4l6 5 6-5M10 28l6-5 6 5M4 15l7 1-1 7M28 15l-7 1 1 7"/>
+        </svg>
+      </span>
+      <span><strong>OPEN HACCP</strong><small>Monitor</small></span>
+    </a>
+    <div class="sync-state" aria-live="polite">
+      <span class="live-dot"></span>
+      <span id="sync-label">Daten werden geladen</span>
+      <button id="refresh-button" class="icon-button" type="button" aria-label="Daten aktualisieren" title="Aktualisieren">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6v5h-5M4 18v-5h5M6.1 9a7 7 0 0 1 11.2-2.1L20 9M4 15l2.7 2.1A7 7 0 0 0 17.9 15"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="app-shell">
+    <aside class="device-rail" aria-label="Geräte">
+      <div class="rail-heading">
+        <span>Geräte</span>
+        <strong id="device-count">–</strong>
+      </div>
+      <nav id="device-list" class="device-list" aria-label="Verfügbare Geräte"></nav>
+      <div class="rail-foot">
+        <span>API</span>
+        <a href="/health" target="_blank" rel="noreferrer">Systemstatus</a>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <section class="workspace-head" aria-labelledby="workspace-title">
+        <div>
+          <p class="eyebrow" id="device-uid">Noch kein Gerät</p>
+          <h1 id="workspace-title">Messstellenübersicht</h1>
+          <p class="context-line" id="device-context">Warten auf Sensordaten</p>
+        </div>
+        <div class="workspace-controls">
+          <label>
+            <span>Messstelle</span>
+            <select id="point-select" aria-label="Messstelle auswählen" disabled>
+              <option>Keine Messstelle</option>
+            </select>
+          </label>
+          <div class="range-control" aria-label="Zeitraum auswählen">
+            <button type="button" data-hours="6">6 h</button>
+            <button type="button" data-hours="24" class="is-active">24 h</button>
+            <button type="button" data-hours="72">3 T</button>
+            <button type="button" data-hours="168">7 T</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="metric-strip" aria-label="Aktuelle Messwerte">
+        <div class="primary-reading">
+          <span>Temperatur</span>
+          <strong id="temperature-value">–</strong>
+          <small>°C</small>
+        </div>
+        <div class="metric">
+          <span>Feuchte</span>
+          <strong id="humidity-value">–</strong>
+          <small>% RH</small>
+        </div>
+        <div class="metric">
+          <span>Minimum</span>
+          <strong id="minimum-value">–</strong>
+          <small>°C</small>
+        </div>
+        <div class="metric">
+          <span>Maximum</span>
+          <strong id="maximum-value">–</strong>
+          <small>°C</small>
+        </div>
+        <div class="metric metric-meta">
+          <span>Letzte Messung</span>
+          <strong id="latest-time">–</strong>
+          <small id="measurement-count">0 Messwerte</small>
+        </div>
+      </section>
+
+      <section class="chart-section" aria-labelledby="chart-title">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Verlauf</p>
+            <h2 id="chart-title">Temperatur und relative Feuchte</h2>
+          </div>
+          <div class="chart-legend" aria-label="Legende">
+            <span><i class="legend-temperature"></i>Temperatur</span>
+            <span><i class="legend-humidity"></i>Feuchte</span>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="measurement-chart" aria-label="Zeitlicher Verlauf von Temperatur und Feuchte"></canvas>
+          <div id="chart-tooltip" class="chart-tooltip" hidden></div>
+          <p id="chart-empty" class="empty-state" hidden>Noch keine Messwerte in diesem Zeitraum.</p>
+        </div>
+      </section>
+
+      <section class="detail-grid">
+        <div class="recent-panel">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Messprotokoll</p>
+              <h2>Letzte Messungen</h2>
+            </div>
+          </div>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr><th>Zeit</th><th>Temp.</th><th>Feuchte</th><th>Batterie</th><th>Seq.</th></tr>
+              </thead>
+              <tbody id="recent-table">
+                <tr><td colspan="5" class="table-empty">Noch keine Daten</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <aside class="diagnostic-panel" aria-labelledby="diagnostic-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Gerätediagnose</p>
+              <h2 id="diagnostic-title">Letzte Verbindung</h2>
+            </div>
+            <span id="device-state" class="state-badge">Unbekannt</span>
+          </div>
+          <dl id="diagnostic-list">
+            <div><dt>Firmware</dt><dd>–</dd></div>
+            <div><dt>Hardware</dt><dd>–</dd></div>
+            <div><dt>Signal</dt><dd>–</dd></div>
+            <div><dt>WLAN-Aufbau</dt><dd>–</dd></div>
+            <div><dt>Batterie</dt><dd>–</dd></div>
+            <div><dt>Boot-Zähler</dt><dd>–</dd></div>
+          </dl>
+        </aside>
+      </section>
+
+      <footer class="workspace-foot">
+        <span id="fleet-summary">0 Geräte · 0 Messungen</span>
+        <span>Sensor Protocol V1</span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

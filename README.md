@@ -18,7 +18,7 @@ HTTP controllers delegate to protocol services, which use prepared-statement rep
 
 - Docker Engine with Docker Compose v2
 - `openssl` for generating local secrets
-- Free local TCP port 8080
+- Free local TCP port 18082 (configurable with `APP_HTTP_PORT`)
 
 PHP and Composer are not required on the host.
 
@@ -29,12 +29,12 @@ cp .env.example .env
 openssl rand -hex 32
 ```
 
-Edit `.env` and replace all three placeholder secrets. `DEVICE_API_KEY_PEPPER` must contain at least 32 characters; 64 random hexadecimal characters are recommended.
+Edit `.env` and replace all placeholder secrets. `DEVICE_API_KEY_PEPPER` must contain at least 32 characters; 64 random hexadecimal characters are recommended. Set a separate dashboard password with at least 12 characters.
 
 ```bash
 docker compose up -d --build
 docker compose ps
-curl http://localhost:8080/health
+curl http://localhost:18082/health
 ```
 
 The app waits for MariaDB and automatically runs all Phinx migrations. Set `MIGRATE_ON_START=false` when migrations should be a separate deployment step. A manual migration command is:
@@ -48,6 +48,8 @@ Expected health response:
 ```json
 {"status":"ok","service":"haccp-monitor-backend","database":"ok"}
 ```
+
+The local developer dashboard is available at [http://localhost:18082/dashboard](http://localhost:18082/dashboard) and uses the `DASHBOARD_USERNAME` and `DASHBOARD_PASSWORD` values from `.env`. The VPS test dashboard is available at [https://haccp.pow24.org/dashboard](https://haccp.pow24.org/dashboard). This is simple operator protection, not customer identity management.
 
 ## Provision a prototype
 
@@ -96,6 +98,8 @@ docker compose exec app php tools/sensor_simulator.php \
   --resend
 ```
 
+To exercise the same verified TLS route as production firmware, change the URL to `https://haccp.pow24.org`. The simulator uses normal CA and hostname verification and has no insecure TLS mode.
+
 The first response reports three `accepted` acknowledgements. The immediate resend reports three `duplicate` acknowledgements and creates no additional measurement rows.
 
 Send only a heartbeat:
@@ -122,7 +126,7 @@ Simulator sequence, boot, and upload counters are stored in the ignored `.runtim
 Fetch config:
 
 ```bash
-curl -sS http://localhost:8080/api/v1/device/config \
+curl -sS http://localhost:18082/api/v1/device/config \
   -H 'X-Device-ID: haccp-p01-0001' \
   -H 'X-Device-Key: PASTE_DEVICE_KEY'
 ```
@@ -130,7 +134,7 @@ curl -sS http://localhost:8080/api/v1/device/config \
 Send a heartbeat:
 
 ```bash
-curl -sS -X POST http://localhost:8080/api/v1/device/heartbeat \
+curl -sS -X POST http://localhost:18082/api/v1/device/heartbeat \
   -H 'Content-Type: application/json' \
   -H 'X-Device-ID: haccp-p01-0001' \
   -H 'X-Device-Key: PASTE_DEVICE_KEY' \
@@ -156,6 +160,24 @@ docker compose logs app
 ```
 
 Logs contain request IDs, endpoints, status, durations and batch result counts. Device keys, request bodies and database passwords are never logged.
+
+## VPS and reverse proxy
+
+The default binding is `127.0.0.1:18082`, avoiding collisions with public ports and preventing accidental direct Internet exposure. For the existing VPS Nginx Proxy Manager network, start with the override:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build
+```
+
+The override attaches only the app container to the external Docker network named `proxy` under the stable alias `haccp-monitor`. The deployed Nginx Proxy Manager host `haccp.pow24.org` forwards to `haccp-monitor:80`, forces HTTPS, enables HTTP/2 and HSTS, and uses a publicly trusted Let's Encrypt certificate. The host port remains bound to loopback.
+
+The external device base URL is:
+
+```text
+https://haccp.pow24.org
+```
+
+Sensors must establish Wi-Fi, synchronize UTC time, establish a certificate-verified HTTPS connection, and only then exchange Sensor Protocol V1 HTTP/JSON requests. Plain HTTP is limited to the Docker-internal proxy hop and local development; firmware must never use it in deployment.
 
 ## Run tests
 
@@ -190,4 +212,4 @@ docker compose down -v
 
 ## Prototype limitations
 
-There is no user or tenant model, browser UI, rate limiter, alert delivery, export, calibration workflow, Wi-Fi provisioning, firmware registry, OTA channel, or cloud-provider dependency. Device configuration is read-only over HTTP and currently created with the device through CLI. TLS is expected to be terminated by a reverse proxy in deployment.
+There is no customer user or tenant model, rate limiter, alert delivery, export, calibration workflow, Wi-Fi provisioning, firmware registry, OTA channel, or cloud-provider dependency. The included dashboard is a read-only developer monitor protected by environment-configured HTTP Basic credentials. Device configuration is read-only over Sensor Protocol V1 and currently created with the device through CLI. TLS is terminated by Nginx Proxy Manager in deployment, while firmware uses HTTPS exclusively.

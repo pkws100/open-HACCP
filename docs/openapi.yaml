@@ -4,7 +4,10 @@ info:
   version: 1.0.0
   description: Developer prototype API and binding definition of Sensor Protocol V1.
 servers:
-  - url: http://localhost:8080
+  - url: https://haccp.pow24.org
+    description: VPS test deployment; HTTPS is mandatory for sensor firmware
+  - url: http://localhost:18082
+    description: Loopback-only local development
 paths:
   /health:
     get:
@@ -175,6 +178,36 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/dashboard/overview:
+    get:
+      operationId: getDashboardOverview
+      summary: Read the developer dashboard overview
+      description: Read-only operational data; not part of the firmware contract.
+      security:
+        - DashboardBasic: []
+      parameters:
+        - in: query
+          name: device
+          schema: { type: string }
+        - in: query
+          name: point
+          schema: { type: string }
+        - in: query
+          name: hours
+          schema: { type: integer, enum: [6, 24, 72, 168], default: 24 }
+      responses:
+        "200":
+          description: Fleet, selected measurement point, chart series, recent values and diagnostics
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [server_time, window_hours, fleet, devices, series, recent_measurements]
+                additionalProperties: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/InternalError"
 components:
   securitySchemes:
     DeviceId:
@@ -185,6 +218,9 @@ components:
       type: apiKey
       in: header
       name: X-Device-Key
+    DashboardBasic:
+      type: http
+      scheme: basic
   schemas:
     HealthResponse:
       type: object
