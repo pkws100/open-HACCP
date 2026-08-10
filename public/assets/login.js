@@ -1,13 +1,16 @@
-import { api, setCsrfToken, ApiError } from './api.js?v=20260809-2';
+import { api, setCsrfToken, ApiError } from './api.js?v=20260810-1';
+import { applyTheme, bindThemeControls } from './theme.js?v=20260810-1';
 
 const loginForm = document.querySelector('#login-form');
 const passwordForm = document.querySelector('#password-form');
 const loginMessage = document.querySelector('#login-message');
 const passwordMessage = document.querySelector('#password-message');
+bindThemeControls((preference) => applyTheme(preference));
 
 try {
   const session = await api('/api/v1/auth/me');
   setCsrfToken(session.csrf_token);
+  applyTheme(session.user.theme_preference || 'system');
   if (!session.user.password_change_required) window.location.replace('/dashboard');
   else { loginForm.hidden = true; passwordForm.hidden = false; }
 } catch (error) {
@@ -21,6 +24,7 @@ loginForm.addEventListener('submit', async (event) => {
   try {
     const result = await api('/api/v1/auth/login', { method: 'POST', body: { username: data.get('username'), password: data.get('password') } });
     setCsrfToken(result.csrf_token);
+    applyTheme(result.user.theme_preference || 'system');
     if (result.user.password_change_required) {
       loginForm.hidden = true; passwordForm.hidden = false;
       passwordForm.current_password.value = data.get('password'); passwordForm.new_password.focus();

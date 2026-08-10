@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
   title: Open HACCP API
-  version: 1.1.0
-  description: Sensor Protocol V1 plus the session-protected operational, compliance and export dashboard API.
+  version: 1.2.0
+  description: Sensor Protocol V1 plus the session-protected operational, media, compliance and export dashboard API.
   x-stable-error-codes:
     - AUTHENTICATION_REQUIRED
     - PASSWORD_CHANGE_REQUIRED
@@ -13,6 +13,13 @@ info:
     - EXPORT_NOT_READY
     - EXPORT_EXPIRED
     - ACTION_VALIDATION_FAILED
+    - INVALID_THEME_PREFERENCE
+    - MEASUREMENT_POINT_NOT_FOUND
+    - PHOTO_NOT_FOUND
+    - PHOTO_TOO_LARGE
+    - UNSUPPORTED_IMAGE_FORMAT
+    - INVALID_IMAGE
+    - IMAGE_PROCESSING_FAILED
 servers:
   - url: https://haccp.pow24.org
     description: VPS test deployment; HTTPS is mandatory for sensor firmware
@@ -267,6 +274,26 @@ paths:
         "401": { $ref: "#/components/responses/DashboardUnauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/auth/me/preferences:
+    put:
+      operationId: updateDashboardPreferences
+      summary: Persist the current user's interface theme
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [theme]
+              properties:
+                theme: { type: string, enum: [system, light, dark] }
+      responses:
+        "200": { description: Theme preference updated for the current account }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /api/v1/dashboard/overview:
     get:
       operationId: getDashboardOverview
@@ -286,7 +313,7 @@ paths:
           schema: { type: integer, enum: [6, 24, 72, 168], default: 24 }
       responses:
         "200":
-          description: Fleet, selected measurement point, chart series, recent values and diagnostics
+          description: Fleet, selected measurement point, current protected photo URLs, chart series, recent values and diagnostics
           content:
             application/json:
               schema:
@@ -692,6 +719,100 @@ paths:
         "200": { description: Establishment updated }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/measurement-points/{id}/photos:
+    get:
+      operationId: listMeasurementPointPhotos
+      summary: List all non-deleted photo revisions for a measurement point
+      security: [{ DashboardSession: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      responses:
+        "200":
+          description: Current and historical normalized photo revisions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, measurement_point, photos]
+                properties:
+                  success: { type: boolean, const: true }
+                  measurement_point: { type: object, additionalProperties: true }
+                  photos: { type: array, items: { $ref: "#/components/schemas/MeasurementPointPhoto" } }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      operationId: uploadMeasurementPointPhoto
+      summary: Normalize and append a new current photo revision
+      description: >-
+        Administrator/operator endpoint. The upload is limited to 12 MiB and 24 megapixels. JPEG, PNG, WebP,
+        HEIC and HEIF are accepted; EXIF/GPS data and the original file are discarded. Stored variants are WebP.
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: id, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [photo]
+              properties:
+                photo: { type: string, format: binary }
+      responses:
+        "201":
+          description: Photo revision created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, photo]
+                properties:
+                  success: { type: boolean, const: true }
+                  photo: { $ref: "#/components/schemas/MeasurementPointPhoto" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { description: PHOTO_TOO_LARGE }
+        "415": { description: UNSUPPORTED_IMAGE_FORMAT }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
+  /api/v1/dashboard/photos/{photo_id}/{variant}:
+    get:
+      operationId: viewMeasurementPointPhoto
+      summary: Read a protected WebP photo variant
+      security: [{ DashboardSession: [] }]
+      parameters:
+        - { in: path, name: photo_id, required: true, schema: { type: string, format: uuid } }
+        - { in: path, name: variant, required: true, schema: { type: string, enum: [thumbnail, full] } }
+      responses:
+        "200":
+          description: Private, immutable WebP variant
+          content:
+            image/webp: { schema: { type: string, format: binary } }
+        "401": { $ref: "#/components/responses/DashboardUnauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /api/v1/dashboard/photos/{photo_id}:
+    delete:
+      operationId: permanentlyDeleteMeasurementPointPhoto
+      summary: Permanently remove one photo revision while retaining an audit tombstone
+      description: Administrator-only destructive action. If the current revision is removed, the latest surviving revision is promoted.
+      security: [{ DashboardSession: [], CsrfToken: [] }]
+      parameters:
+        - { in: path, name: photo_id, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [current_password]
+              properties:
+                current_password: { type: string, maxLength: 128 }
+      responses:
+        "200": { description: Image files removed; current_photo_id contains the promoted revision or null }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /api/v1/dashboard/measurement-points/{id}/compliance:
     put:
       operationId: updateMeasurementPointCompliance
@@ -980,15 +1101,32 @@ components:
           enum: [normal, below_min, above_max, disabled, no_data]
     DashboardUser:
       type: object
-      required: [id, username, display_name, role, password_change_required, active]
+      required: [id, username, display_name, role, theme_preference, password_change_required, active]
       properties:
         id: { type: integer, minimum: 1 }
         username: { type: string }
         display_name: { type: string }
         email: { type: [string, "null"], format: email }
         role: { type: string, enum: [administrator, operator, auditor] }
+        theme_preference: { type: string, enum: [system, light, dark] }
         password_change_required: { type: boolean }
         active: { type: boolean }
+    MeasurementPointPhoto:
+      type: object
+      additionalProperties: false
+      required: [photo_id, revision, is_current, thumbnail_url, full_url, width, height, size, sha256, created_at]
+      properties:
+        photo_id: { type: string, format: uuid }
+        revision: { type: integer, minimum: 1 }
+        is_current: { type: boolean }
+        thumbnail_url: { type: string }
+        full_url: { type: string }
+        width: { type: integer, minimum: 1, maximum: 2048 }
+        height: { type: integer, minimum: 1, maximum: 2048 }
+        size: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: "^[a-f0-9]{64}$" }
+        created_at: { type: string, format: date-time }
+        created_by: { type: [string, "null"] }
     AuthResponse:
       type: object
       required: [success, user, csrf_token]

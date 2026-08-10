@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260809-2';
-import { closeDialog, errorMessage, openDialog } from '../dialog.js?v=20260809-2';
-import { escapeHtml, eventLabel, formatDate, statusLabel, statusPill } from '../format.js?v=20260809-2';
+import { api } from '../api.js?v=20260810-1';
+import { closeDialog, errorMessage, openDialog } from '../dialog.js?v=20260810-1';
+import { escapeHtml, eventLabel, formatDate, statusLabel, statusPill } from '../format.js?v=20260810-1';
 
 const state = { status: 'all', device: '', days: 30, initialized: false };
 let context;
@@ -26,7 +26,7 @@ async function load() {
   const result = await api(`/api/v1/dashboard/events?${params}`);
   const openCount = result.events.filter((event) => event.state !== 'resolved').length;
   const badge = document.querySelector('#event-badge'); badge.textContent = String(openCount); badge.hidden = openCount === 0;
-  document.querySelector('#event-table').innerHTML = result.events.map((event) => `<tr data-id="${event.id}" data-action><td>${formatDate(event.opened_at)}${event.closed_at ? `<small>Ende ${formatDate(event.closed_at)}</small>` : ''}</td><td><strong>${escapeHtml(event.device_name)}</strong><small>${escapeHtml(event.point_name || 'Geräteereignis')}</small></td><td>${escapeHtml(eventLabel(event.event_type))}</td><td>${statusPill(event.severity === 'critical' ? 'Kritisch' : 'Hinweis', event.severity)}</td><td>${statusPill(statusLabel(event.state), event.state === 'open' ? 'critical' : event.state === 'resolved' ? 'complete' : 'warning')}</td><td>${event.action_count}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Keine Abweichungen im gewählten Zeitraum.</td></tr>';
+  document.querySelector('#event-table').innerHTML = result.events.map((event) => `<tr data-id="${event.id}" data-action><td data-label="Zeitpunkt">${formatDate(event.opened_at)}${event.closed_at ? `<small>Ende ${formatDate(event.closed_at)}</small>` : ''}</td><td data-label="Messstelle"><strong>${escapeHtml(event.device_name)}</strong><small>${escapeHtml(event.point_name || 'Geräteereignis')}</small></td><td data-label="Ereignis">${escapeHtml(eventLabel(event.event_type))}</td><td data-label="Schwere">${statusPill(event.severity === 'critical' ? 'Kritisch' : 'Hinweis', event.severity)}</td><td data-label="Status">${statusPill(statusLabel(event.state), event.state === 'open' ? 'critical' : event.state === 'resolved' ? 'complete' : 'warning')}</td><td data-label="Maßnahmen">${event.action_count}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Keine Abweichungen im gewählten Zeitraum.</td></tr>';
   document.querySelectorAll('#event-table tr[data-id]').forEach((row) => row.addEventListener('click', () => showDetail(Number(row.dataset.id))));
 }
 

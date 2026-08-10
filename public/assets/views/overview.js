@@ -1,7 +1,7 @@
-import { api } from '../api.js?v=20260809-2';
-import { lineChart, accessibleTable } from '../charts.js?v=20260809-2';
-import { openDialog, closeDialog, errorMessage } from '../dialog.js?v=20260809-2';
-import { alarmLabel, batteryIcon, escapeHtml, formatDate, formatNumber, metric, signalIcon, statusPill } from '../format.js?v=20260809-2';
+import { api } from '../api.js?v=20260810-1';
+import { lineChart, accessibleTable, chartColor, observeChartResize } from '../charts.js?v=20260810-1';
+import { openDialog, closeDialog, errorMessage } from '../dialog.js?v=20260810-1';
+import { alarmLabel, batteryIcon, escapeHtml, formatDate, formatNumber, metric, signalIcon, statusPill } from '../format.js?v=20260810-1';
 
 const state = { device: '', point: '', hours: 24, data: null, initialized: false };
 let context;
@@ -16,6 +16,8 @@ export const overviewView = {
     document.querySelectorAll('[data-hours]').forEach((button) => button.addEventListener('click', () => { state.hours = Number(button.dataset.hours); document.querySelectorAll('[data-hours]').forEach((candidate) => candidate.classList.toggle('is-active', candidate === button)); load(); }));
     document.querySelector('#add-device').addEventListener('click', enrollmentDialog);
     window.addEventListener('resize', () => state.data && renderChart());
+    window.addEventListener('haccp:themechange', () => state.data && renderChart());
+    observeChartResize([document.querySelector('#overview-chart')], () => state.data && renderChart());
   },
   load,
 };
@@ -51,8 +53,8 @@ function renderChart() {
   const values = state.data?.series || [];
   document.querySelector('#overview-chart-empty').hidden = values.length > 0;
   lineChart(document.querySelector('#overview-chart'), [
-    { name: 'Temperatur', values: values.map((row) => ({ at: row.measured_at, value: row.temperature_c })), color: '#61d6c3' },
-    { name: 'Feuchte', values: values.map((row) => ({ at: row.measured_at, value: row.humidity_rh })), color: '#6e91bc', width: 1.4 },
+    { name: 'Temperatur', values: values.map((row) => ({ at: row.measured_at, value: row.temperature_c })), color: chartColor('accent') },
+    { name: 'Feuchte', values: values.map((row) => ({ at: row.measured_at, value: row.humidity_rh })), color: chartColor('humidity'), width: 1.4 },
   ]);
   accessibleTable(document.querySelector('#overview-chart-table'), 'Temperatur- und Feuchteverlauf', ['Zeitpunkt', 'Temperatur °C', 'Feuchte %'], values.map((row) => [formatDate(row.measured_at), row.temperature_c, row.humidity_rh]));
 }
@@ -60,19 +62,62 @@ function renderChart() {
 function renderFocus() {
   const data = state.data; const device = data.selected_device;
   if (!device) { document.querySelector('#device-focus').innerHTML = '<p>Kein aktives Gerät.</p>'; return; }
-  const settings = data.settings; const kpi = data.kpis || {};
-  document.querySelector('#device-focus').innerHTML = `<div><p class="eyebrow">Ausgewähltes Gerät</p><h2>${escapeHtml(device.name)}</h2><p>${escapeHtml(data.selected_measurement_point?.location || device.device_uid)}</p><div class="focus-reading"><strong>${formatNumber(kpi.latest_temperature_c, ' °C')}</strong><span>${escapeHtml(alarmLabel(kpi.alarm_status))} · Bereich ${formatNumber(settings?.alarm?.temperature_min_c)} bis ${formatNumber(settings?.alarm?.temperature_max_c)} °C</span></div></div><div class="focus-status"><div><span>Batterie</span><strong>${batteryIcon(device.battery.state)} ${formatNumber(device.battery.millivolts, ' mV')}</strong></div><div><span>Funksignal</span><strong>${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</strong></div><div><span>Firmware</span><strong>${escapeHtml(device.firmware_version || '–')}</strong></div><div><span>Letzte Verbindung</span><strong>${formatDate(device.last_seen_at)}</strong></div></div><div class="focus-actions">${context.user.role !== 'auditor' ? '<button class="secondary-button" id="device-settings" type="button">Grenzwerte</button><button class="secondary-button" id="battery-replaced" type="button">Batterie gewechselt</button>' : ''}</div>`;
+  const settings = data.settings; const kpi = data.kpis || {}; const point = data.selected_measurement_point; const photo = point?.photo;
+  const photoMarkup = photo
+    ? `<button class="focus-photo" id="focus-photo" type="button" aria-label="Foto von ${escapeHtml(point.name)} groß anzeigen"><img src="${escapeHtml(photo.thumbnail_url)}" alt="${escapeHtml(photoAlt(point))}"><span>Bild öffnen · Revision ${photo.revision}</span></button>`
+    : `<div class="focus-photo-empty"><span aria-hidden="true">＋</span><strong>Noch kein Foto</strong><small>${escapeHtml(point?.name || 'Messstelle')}</small></div>`;
+  const photoActions = point && context.user.role !== 'auditor' ? `<label class="secondary-button file-button">Foto aufnehmen<input type="file" id="photo-camera" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment"></label><label class="secondary-button file-button">Bild auswählen<input type="file" id="photo-library" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label>` : '';
+  document.querySelector('#device-focus').innerHTML = `${photoMarkup}<div><p class="eyebrow">Ausgewählte Messstelle</p><h2>${escapeHtml(device.name)}</h2><p>${escapeHtml(point?.name || device.device_uid)}${point?.location ? ` · ${escapeHtml(point.location)}` : ''}</p><div class="focus-reading"><strong>${formatNumber(kpi.latest_temperature_c, ' °C')}</strong><span>${escapeHtml(alarmLabel(kpi.alarm_status))} · Bereich ${formatNumber(settings?.alarm?.temperature_min_c)} bis ${formatNumber(settings?.alarm?.temperature_max_c)} °C</span></div></div><div class="focus-status"><div><span>Batterie</span><strong>${batteryIcon(device.battery.state)} ${formatNumber(device.battery.millivolts, ' mV')}</strong></div><div><span>Funksignal</span><strong>${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</strong></div><div><span>Firmware</span><strong>${escapeHtml(device.firmware_version || '–')}</strong></div><div><span>Letzte Verbindung</span><strong>${formatDate(device.last_seen_at)}</strong></div></div><div class="focus-actions">${photoActions}${photo ? '<button class="secondary-button" id="photo-history" type="button">Bildverlauf</button>' : ''}${context.user.role !== 'auditor' ? '<button class="secondary-button" id="device-settings" type="button">Grenzwerte</button><button class="secondary-button" id="battery-replaced" type="button">Batterie gewechselt</button>' : ''}</div>`;
+  document.querySelector('#focus-photo')?.addEventListener('click', photoHistoryDialog);
+  document.querySelector('#photo-history')?.addEventListener('click', photoHistoryDialog);
+  document.querySelectorAll('#photo-camera, #photo-library').forEach((input) => input.addEventListener('change', (event) => uploadPhoto(event.target.files?.[0])));
   document.querySelector('#device-settings')?.addEventListener('click', settingsDialog);
   document.querySelector('#battery-replaced')?.addEventListener('click', batteryDialog);
 }
 
 function renderDevices() {
-  document.querySelector('#device-table').innerHTML = state.data.devices.map((device) => `<tr data-uid="${escapeHtml(device.device_uid)}"><td><strong>${escapeHtml(device.name)}</strong><small>${escapeHtml(device.device_uid)}</small></td><td>${formatNumber(device.latest_temperature_c, ' °C')}</td><td>${statusPill(alarmLabel(device.alarm.state), ['below_min','above_max'].includes(device.alarm.state) ? 'critical' : device.alarm.state)}</td><td>${batteryIcon(device.battery.state)} ${formatNumber(device.battery.millivolts, ' mV')}</td><td>${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</td><td>${formatDate(device.last_seen_at)}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Keine aktiven Geräte.</td></tr>';
+  document.querySelector('#device-table').innerHTML = state.data.devices.map((device) => `<tr data-uid="${escapeHtml(device.device_uid)}"><td data-label="Gerät"><div class="device-cell">${device.photo ? `<img src="${escapeHtml(device.photo.thumbnail_url)}" alt="">` : '<span class="device-thumb-empty" aria-hidden="true"></span>'}<span><strong>${escapeHtml(device.name)}</strong><small>${escapeHtml(device.device_uid)}</small></span></div></td><td data-label="Temperatur">${formatNumber(device.latest_temperature_c, ' °C')}</td><td data-label="Alarm">${statusPill(alarmLabel(device.alarm.state), ['below_min','above_max'].includes(device.alarm.state) ? 'critical' : device.alarm.state)}</td><td data-label="Batterie">${batteryIcon(device.battery.state)} ${formatNumber(device.battery.millivolts, ' mV')}</td><td data-label="Signal">${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</td><td data-label="Verbindung">${formatDate(device.last_seen_at)}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Keine aktiven Geräte.</td></tr>';
   document.querySelectorAll('#device-table tr[data-uid]').forEach((row) => row.addEventListener('click', () => { state.device = row.dataset.uid; state.point = ''; load(); }));
 }
 
 function renderRecent() {
-  document.querySelector('#recent-table').innerHTML = (state.data.recent_measurements || []).map((row) => `<tr><td>${formatDate(row.measured_at)}</td><td>${row.sequence}</td><td><strong>${formatNumber(row.temperature_c, ' °C')}</strong></td><td>${formatNumber(row.humidity_rh, ' %')}</td><td>${formatNumber(row.battery_mv, ' mV')}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="5">Noch keine Messwerte vorhanden.</td></tr>';
+  document.querySelector('#recent-table').innerHTML = (state.data.recent_measurements || []).map((row) => `<tr><td data-label="Zeitpunkt">${formatDate(row.measured_at)}</td><td data-label="Sequenz">${row.sequence}</td><td data-label="Temperatur"><strong>${formatNumber(row.temperature_c, ' °C')}</strong></td><td data-label="Feuchte">${formatNumber(row.humidity_rh, ' %')}</td><td data-label="Batterie">${formatNumber(row.battery_mv, ' mV')}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="5">Noch keine Messwerte vorhanden.</td></tr>';
+}
+
+async function uploadPhoto(file) {
+  if (!file) return;
+  if (file.size > 12 * 1024 * 1024) { context.showMessage('Das Foto darf höchstens 12 MiB groß sein.'); return; }
+  const form = new FormData(); form.append('photo', file);
+  try {
+    await api(`/api/v1/dashboard/measurement-points/${state.data.selected_measurement_point.id}/photos`, { method: 'POST', body: form });
+    context.showMessage('Das Messstellenfoto wurde sicher verarbeitet und versioniert.', true);
+    await load();
+  } catch (error) { context.showMessage(error.message); }
+}
+
+async function photoHistoryDialog() {
+  const point = state.data.selected_measurement_point;
+  const payload = await api(`/api/v1/dashboard/measurement-points/${point.id}/photos`);
+  showPhotoHistory(payload, payload.photos.find((photo) => photo.is_current)?.photo_id || payload.photos[0]?.photo_id);
+}
+
+function showPhotoHistory(payload, selectedId) {
+  const selected = payload.photos.find((photo) => photo.photo_id === selectedId) || payload.photos[0];
+  if (!selected) { closeDialog(); return; }
+  const canDelete = context.user.role === 'administrator';
+  openDialog({ heading: payload.measurement_point.name, kicker: `Bildverlauf · ${payload.photos.length} Revision${payload.photos.length === 1 ? '' : 'en'}`, html: `<div class="photo-viewer"><img class="photo-viewer-main" src="${escapeHtml(selected.full_url)}" alt="${escapeHtml(photoAlt(payload.measurement_point))}"><div class="photo-viewer-meta"><span>Revision ${selected.revision}</span><span>${formatDate(selected.created_at)}${selected.created_by ? ` · ${escapeHtml(selected.created_by)}` : ''}</span></div><div class="photo-history-strip" aria-label="Bildrevisionen">${payload.photos.map((photo) => `<button type="button" data-photo-id="${escapeHtml(photo.photo_id)}" class="${photo.photo_id === selected.photo_id ? 'is-active' : ''}" aria-label="Revision ${photo.revision} anzeigen"><img src="${escapeHtml(photo.thumbnail_url)}" alt=""><span>R${photo.revision}</span></button>`).join('')}</div>${canDelete ? `<div class="photo-delete-zone"><button type="button" class="danger-button" data-delete-photo>Diese Revision löschen</button><div data-delete-form></div></div>` : ''}</div>`, onOpen(root) {
+    root.querySelectorAll('[data-photo-id]').forEach((button) => button.addEventListener('click', () => showPhotoHistory(payload, button.dataset.photoId)));
+    root.querySelector('[data-delete-photo]')?.addEventListener('click', () => {
+      root.querySelector('[data-delete-form]').innerHTML = `<form id="photo-delete-form"><p class="form-note">Das Bild wird endgültig entfernt. Der Audit-Nachweis ohne Bildinhalt bleibt bestehen.</p><label>Aktuelles Passwort<input name="password" type="password" autocomplete="current-password" required></label><div class="form-message" hidden></div><div class="dialog-actions"><button class="secondary-button" type="button" data-delete-cancel>Abbrechen</button><button class="danger-button" type="submit">Endgültig löschen</button></div></form>`;
+      const form = root.querySelector('#photo-delete-form');
+      form.querySelector('[data-delete-cancel]').addEventListener('click', () => { root.querySelector('[data-delete-form]').innerHTML = ''; });
+      form.addEventListener('submit', async (event) => { event.preventDefault(); const password = new FormData(form).get('password'); try { await api(`/api/v1/dashboard/photos/${encodeURIComponent(selected.photo_id)}`, { method: 'DELETE', body: { current_password: password } }); closeDialog(); context.showMessage('Die Bildrevision wurde endgültig gelöscht.', true); await load(); } catch (error) { form.querySelector('.form-message').outerHTML = errorMessage(error); } });
+    });
+  } });
+}
+
+function photoAlt(point) {
+  return `Messstelle ${point.name}${point.location ? `, ${point.location}` : ''}`;
 }
 
 function settingsDialog() {

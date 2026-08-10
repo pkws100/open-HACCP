@@ -1,5 +1,5 @@
-import { api } from '../api.js?v=20260809-2';
-import { escapeHtml, formatDate, statusLabel, statusPill } from '../format.js?v=20260809-2';
+import { api } from '../api.js?v=20260810-1';
+import { escapeHtml, formatDate, statusLabel, statusPill } from '../format.js?v=20260810-1';
 
 let context;
 let initialized = false;
@@ -27,16 +27,16 @@ async function loadCatalog() {
   const overview = await api('/api/v1/dashboard/overview?hours=24');
   context.devices = overview.devices;
   const details = await Promise.all(overview.devices.map((device) => api(`/api/v1/dashboard/overview?hours=24&device=${encodeURIComponent(device.device_uid)}`)));
-  document.querySelector('#export-devices').innerHTML = overview.devices.map((device) => `<option value="${escapeHtml(device.device_uid)}">${escapeHtml(device.name)}</option>`).join('');
-  document.querySelector('#export-points').innerHTML = details.flatMap((detail) => detail.measurement_points.map((point) => `<option value="${point.id}" data-device="${escapeHtml(detail.selection.device_uid)}">${escapeHtml(detail.selected_device.name)} · ${escapeHtml(point.name)}</option>`)).join('');
+  document.querySelector('#export-devices').innerHTML = overview.devices.map((device) => `<label><input type="checkbox" value="${escapeHtml(device.device_uid)}"> <span>${escapeHtml(device.name)}</span></label>`).join('');
+  document.querySelector('#export-points').innerHTML = details.flatMap((detail) => detail.measurement_points.map((point) => `<label data-device="${escapeHtml(detail.selection.device_uid)}"><input type="checkbox" value="${point.id}"> <span>${escapeHtml(detail.selected_device.name)} · ${escapeHtml(point.name)}</span></label>`)).join('');
   catalogLoaded = true;
 }
 
 function filterPoints() {
   const devices = selectedValues(document.querySelector('#export-devices'));
-  document.querySelectorAll('#export-points option').forEach((option) => {
+  document.querySelectorAll('#export-points label').forEach((option) => {
     option.hidden = devices.length > 0 && !devices.includes(option.dataset.device);
-    if (option.hidden) option.selected = false;
+    if (option.hidden) option.querySelector('input').checked = false;
   });
 }
 
@@ -60,11 +60,11 @@ async function submit(event) {
   finally { button.disabled = false; button.textContent = 'Export einreihen'; }
 }
 
-function selectedValues(select) { return [...select.selectedOptions].map((option) => option.value); }
+function selectedValues(container) { return [...container.querySelectorAll('input:checked')].map((input) => input.value); }
 
 async function loadJobs() {
   window.clearTimeout(pollTimer);
   const result = await api('/api/v1/dashboard/exports');
-  document.querySelector('#export-table').innerHTML = result.jobs.map((job) => `<tr><td>${formatDate(job.created_at)}<small>${escapeHtml(job.public_id)}</small></td><td>${job.mode === 'authority' ? 'Kernumfang' : 'Erweitert'}${job.draft ? '<small>Entwurf</small>' : ''}</td><td>${job.format === 'csv' ? 'CSV-Paket' : job.format.toUpperCase()}</td><td>${statusPill(statusLabel(job.status), job.status)}</td><td>${escapeHtml(job.requested_by || '')}</td><td>${job.status === 'complete' ? `<span class="mono">${escapeHtml((job.sha256 || '').slice(0, 16))}…</span><br><a class="table-action" href="/api/v1/dashboard/exports/${encodeURIComponent(job.public_id)}/download">Herunterladen</a>` : job.status === 'failed' ? `<span title="${escapeHtml(job.error_message || '')}">${escapeHtml(job.error_code || 'Fehler')}</span>` : job.status === 'expired' ? 'Datei abgelaufen' : '–'}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Noch keine Exportaufträge.</td></tr>';
+  document.querySelector('#export-table').innerHTML = result.jobs.map((job) => `<tr><td data-label="Erstellt">${formatDate(job.created_at)}<small>${escapeHtml(job.public_id)}</small></td><td data-label="Modus">${job.mode === 'authority' ? 'Kernumfang' : 'Erweitert'}${job.draft ? '<small>Entwurf</small>' : ''}</td><td data-label="Format">${job.format === 'csv' ? 'CSV-Paket' : job.format.toUpperCase()}</td><td data-label="Status">${statusPill(statusLabel(job.status), job.status)}</td><td data-label="Ersteller">${escapeHtml(job.requested_by || '')}</td><td data-label="Prüfsumme / Download">${job.status === 'complete' ? `<span class="mono">${escapeHtml((job.sha256 || '').slice(0, 16))}…</span><br><a class="table-action" href="/api/v1/dashboard/exports/${encodeURIComponent(job.public_id)}/download">Herunterladen</a>` : job.status === 'failed' ? `<span title="${escapeHtml(job.error_message || '')}">${escapeHtml(job.error_code || 'Fehler')}</span>` : job.status === 'expired' ? 'Datei abgelaufen' : '–'}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Noch keine Exportaufträge.</td></tr>';
   if (result.jobs.some((job) => ['queued', 'running'].includes(job.status))) pollTimer = window.setTimeout(loadJobs, 4000);
 }

@@ -23,6 +23,8 @@ final readonly class Config
         public int $maxRequestBytes = 262_144,
         public string $publicApiBaseUrl = 'https://haccp.pow24.org',
         public string $exportPath = '/var/lib/haccp-exports',
+        public string $mediaPath = '/var/lib/haccp-media',
+        public int $maxPhotoUploadBytes = 12_582_912,
     ) {
     }
 
@@ -82,6 +84,8 @@ final readonly class Config
             dashboardPassword: self::environment('DASHBOARD_PASSWORD'),
             publicApiBaseUrl: $publicApiBaseUrl,
             exportPath: rtrim(self::environment('EXPORT_PATH', '/var/lib/haccp-exports'), '/'),
+            mediaPath: rtrim(self::environment('MEDIA_PATH', '/var/lib/haccp-media'), '/'),
+            maxPhotoUploadBytes: max(1_048_576, (int) self::environment('MAX_PHOTO_UPLOAD_BYTES', '12582912')),
         );
     }
 

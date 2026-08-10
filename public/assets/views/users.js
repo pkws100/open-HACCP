@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260809-2';
-import { closeDialog, errorMessage, openDialog } from '../dialog.js?v=20260809-2';
-import { escapeHtml, formatDate, roleLabel, statusPill } from '../format.js?v=20260809-2';
+import { api } from '../api.js?v=20260810-1';
+import { closeDialog, errorMessage, openDialog } from '../dialog.js?v=20260810-1';
+import { escapeHtml, formatDate, roleLabel, statusPill } from '../format.js?v=20260810-1';
 
 let context;
 let initialized = false;
@@ -17,7 +17,7 @@ export const usersView = {
 
 async function load() {
   const result = await api('/api/v1/dashboard/users'); users = result.users;
-  document.querySelector('#user-table').innerHTML = users.map((user) => `<tr><td><strong>${escapeHtml(user.display_name)}</strong><small>${escapeHtml(user.email || 'Keine E-Mail')}</small></td><td>${escapeHtml(user.username)}${user.password_change_required ? '<small>Passwortwechsel ausstehend</small>' : ''}</td><td>${roleLabel(user.role)}</td><td>${statusPill(user.active ? 'Aktiv' : 'Deaktiviert', user.active ? 'complete' : 'failed')}</td><td>${formatDate(user.last_login_at)}</td><td><button class="table-action" data-edit="${user.id}">Bearbeiten</button><button class="table-action" data-reset="${user.id}">Passwort zurücksetzen</button></td></tr>`).join('');
+  document.querySelector('#user-table').innerHTML = users.map((user) => `<tr><td data-label="Name"><strong>${escapeHtml(user.display_name)}</strong><small>${escapeHtml(user.email || 'Keine E-Mail')}</small></td><td data-label="Benutzername">${escapeHtml(user.username)}${user.password_change_required ? '<small>Passwortwechsel ausstehend</small>' : ''}</td><td data-label="Rolle">${roleLabel(user.role)}</td><td data-label="Status">${statusPill(user.active ? 'Aktiv' : 'Deaktiviert', user.active ? 'complete' : 'failed')}</td><td data-label="Letzte Anmeldung">${formatDate(user.last_login_at)}</td><td data-label="Aktionen"><button class="table-action" data-edit="${user.id}">Bearbeiten</button><button class="table-action" data-reset="${user.id}">Passwort zurücksetzen</button></td></tr>`).join('');
   document.querySelectorAll('[data-edit]').forEach((button) => button.addEventListener('click', () => editDialog(users.find((user) => user.id === Number(button.dataset.edit)))));
   document.querySelectorAll('[data-reset]').forEach((button) => button.addEventListener('click', () => resetPassword(Number(button.dataset.reset))));
 }

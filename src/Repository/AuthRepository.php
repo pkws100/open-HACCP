@@ -31,7 +31,7 @@ final readonly class AuthRepository
     public function userById(int $id): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, username, display_name, email, role, password_hash, password_change_required,
+            'SELECT id, username, display_name, email, role, theme_preference, password_hash, password_change_required,
                     active, locked_until, last_login_at, created_at, updated_at
              FROM users WHERE id = :id',
         );
@@ -45,7 +45,7 @@ final readonly class AuthRepository
     public function users(): array
     {
         return $this->pdo->query(
-            'SELECT id, username, display_name, email, role, password_change_required, active,
+            'SELECT id, username, display_name, email, role, theme_preference, password_change_required, active,
                     locked_until, last_login_at, created_at, updated_at
              FROM users ORDER BY active DESC, display_name, username',
         )->fetchAll();
@@ -100,6 +100,14 @@ final readonly class AuthRepository
             'updated_at' => $now,
             'id' => $id,
         ]);
+    }
+
+    public function updateThemePreference(int $id, string $theme, string $now): void
+    {
+        $statement = $this->pdo->prepare(
+            'UPDATE users SET theme_preference = :theme, updated_at = :updated_at WHERE id = :id',
+        );
+        $statement->execute(['theme' => $theme, 'updated_at' => $now, 'id' => $id]);
     }
 
     public function recoverAdministrator(int $id, string $passwordHash, string $now): void
@@ -182,7 +190,7 @@ final readonly class AuthRepository
     {
         $statement = $this->pdo->prepare(
             'SELECT s.id AS session_id, s.csrf_token, s.absolute_expires_at,
-                    u.id, u.username, u.display_name, u.email, u.role, u.password_hash,
+                    u.id, u.username, u.display_name, u.email, u.role, u.theme_preference, u.password_hash,
                     u.password_change_required, u.active
              FROM user_sessions s INNER JOIN users u ON u.id = s.user_id
              WHERE s.token_hash = :token_hash AND s.idle_expires_at > :idle_now

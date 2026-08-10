@@ -16,7 +16,7 @@ export function setCsrfToken(value) {
 export async function api(path, options = {}) {
   const method = (options.method || 'GET').toUpperCase();
   const headers = { Accept: 'application/json', ...(options.headers || {}) };
-  if (options.body && typeof options.body !== 'string') {
+  if (options.body && typeof options.body !== 'string' && !(options.body instanceof FormData)) {
     headers['Content-Type'] = 'application/json';
     options.body = JSON.stringify(options.body);
   }

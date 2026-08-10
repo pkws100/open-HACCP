@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260809-2';
-import { closeDialog, errorMessage, openDialog } from '../dialog.js?v=20260809-2';
-import { escapeHtml, formatDate, statusPill } from '../format.js?v=20260809-2';
+import { api } from '../api.js?v=20260810-1';
+import { closeDialog, errorMessage, openDialog } from '../dialog.js?v=20260810-1';
+import { escapeHtml, formatDate, statusPill } from '../format.js?v=20260810-1';
 
 let context;
 let initialized = false;
@@ -11,7 +11,7 @@ export const establishmentView = {
   init(app) {
     context = app;
     if (initialized) return; initialized = true;
-    document.querySelector('#establishment-form').addEventListener('submit', saveEstablishment);
+    document.querySelector('#establishment-form')?.addEventListener('submit', saveEstablishment);
   },
   load,
 };
@@ -38,7 +38,7 @@ async function saveEstablishment(event) {
 }
 
 function renderPoints() {
-  document.querySelector('#compliance-table').innerHTML = data.measurement_points.map((point) => `<tr data-point="${point.id}" data-action><td><strong>${escapeHtml(point.device_name)}</strong><small>${escapeHtml(point.point_name || point.name)} · ${escapeHtml(point.location || 'ohne Ortsangabe')}</small></td><td>${point.legal_profile === 'quick_frozen' ? 'Tiefkühlmodul' : 'Allgemeiner HACCP-Nachweis'}</td><td>${escapeHtml(point.control_classification || '–')}</td><td>${escapeHtml(point.responsible_name || 'Nicht zugewiesen')}</td><td>${point.conformity_status === 'documented' ? statusPill('Dokumentiert', 'complete') : statusPill('Nicht dokumentiert', 'warning')}<small>${escapeHtml([point.instrument_manufacturer, point.instrument_model].filter(Boolean).join(' ') || 'Keine Instrumentenangabe')}</small></td><td>${point.config_version ?? 0}<small>${formatDate(point.effective_from)}</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Keine aktiven Messstellen.</td></tr>';
+  document.querySelector('#compliance-table').innerHTML = data.measurement_points.map((point) => `<tr data-point="${point.id}" data-action><td data-label="Messstelle"><strong>${escapeHtml(point.device_name)}</strong><small>${escapeHtml(point.point_name || point.name)} · ${escapeHtml(point.location || 'ohne Ortsangabe')}</small></td><td data-label="Rechtsprofil">${point.legal_profile === 'quick_frozen' ? 'Tiefkühlmodul' : 'Allgemeiner HACCP-Nachweis'}</td><td data-label="Klassifizierung">${escapeHtml(point.control_classification || '–')}</td><td data-label="Verantwortlich">${escapeHtml(point.responsible_name || 'Nicht zugewiesen')}</td><td data-label="Instrument">${point.conformity_status === 'documented' ? statusPill('Dokumentiert', 'complete') : statusPill('Nicht dokumentiert', 'warning')}<small>${escapeHtml([point.instrument_manufacturer, point.instrument_model].filter(Boolean).join(' ') || 'Keine Instrumentenangabe')}</small></td><td data-label="Version">${point.config_version ?? 0}<small>${formatDate(point.effective_from)}</small></td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Keine aktiven Messstellen.</td></tr>';
   document.querySelectorAll('#compliance-table tr[data-point]').forEach((row) => row.addEventListener('click', () => pointDialog(data.measurement_points.find((point) => Number(point.id) === Number(row.dataset.point)))));
 }
 

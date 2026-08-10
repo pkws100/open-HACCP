@@ -18,6 +18,7 @@ use Haccp\Controller\ExportController;
 use Haccp\Controller\HealthController;
 use Haccp\Controller\HeartbeatController;
 use Haccp\Controller\MeasurementController;
+use Haccp\Controller\PhotoController;
 use Haccp\Controller\UserController;
 use Haccp\Middleware\DeviceAuthenticationMiddleware;
 use Haccp\Middleware\RequestIdMiddleware;
@@ -33,6 +34,7 @@ use Haccp\Repository\EventRepository;
 use Haccp\Repository\ExportRepository;
 use Haccp\Repository\MeasurementPointRepository;
 use Haccp\Repository\MeasurementRepository;
+use Haccp\Repository\PhotoRepository;
 use Haccp\Repository\TransmissionRepository;
 use Haccp\Service\ApiKeyService;
 use Haccp\Service\AnalysisService;
@@ -50,6 +52,7 @@ use Haccp\Service\ExportService;
 use Haccp\Service\GapDetector;
 use Haccp\Service\HeartbeatService;
 use Haccp\Service\MeasurementService;
+use Haccp\Service\PhotoService;
 use Haccp\Service\ProtocolValidator;
 use Haccp\Service\UserService;
 use Haccp\Support\Clock;
@@ -82,6 +85,7 @@ final class ApplicationFactory
         $complianceRepository = new ComplianceRepository($pdo);
         $eventRepository = new EventRepository($pdo);
         $exportRepository = new ExportRepository($pdo);
+        $photoRepository = new PhotoRepository($pdo);
         $audit = new AuditService($pdo, $clock, $config->auditLogKey);
         $auth = new AuthService($authRepository, $audit, $clock);
         $auth->bootstrapAdmin($config->dashboardUsername, $config->dashboardPassword);
@@ -116,6 +120,17 @@ final class ApplicationFactory
             $clock,
             $config->publicApiBaseUrl,
         );
+        $photoService = new PhotoService(
+            $pdo,
+            $photoRepository,
+            $measurementPoints,
+            $auth,
+            $audit,
+            $clock,
+            $config->mediaPath,
+            $config->maxPhotoUploadBytes,
+        );
+        $photoController = new PhotoController($photoService, $config);
 
         $measurementService = new MeasurementService(
             $pdo,
@@ -150,6 +165,7 @@ final class ApplicationFactory
         $app->get('/api/v1/auth/me', [$authController, 'me'])->add($readAccess);
         $app->post('/api/v1/auth/logout', [$authController, 'logout'])->add($anyWrite);
         $app->put('/api/v1/auth/me/password', [$authController, 'password'])->add($anyWrite);
+        $app->put('/api/v1/auth/me/preferences', [$authController, 'preferences'])->add($anyWrite);
 
         $app->get('/dashboard', new DashboardController(dirname(__DIR__) . '/resources/dashboard.html'))->add($readAccess);
         $app->get('/api/v1/dashboard/overview', new DashboardDataController($dashboard))
@@ -158,6 +174,10 @@ final class ApplicationFactory
         $app->post('/api/v1/dashboard/devices', new DashboardDeviceController($deviceProvisioning, $config, $audit))->add($writeAccess);
         $app->put('/api/v1/dashboard/devices/{device_uid}/settings', new DashboardSettingsController($dashboardSettings, $config, $audit))->add($writeAccess);
         $app->post('/api/v1/dashboard/devices/{device_uid}/battery-replaced', [$eventController, 'batteryReplaced'])->add($writeAccess);
+        $app->get('/api/v1/dashboard/measurement-points/{id}/photos', [$photoController, 'list'])->add($readAccess);
+        $app->post('/api/v1/dashboard/measurement-points/{id}/photos', [$photoController, 'upload'])->add($writeAccess);
+        $app->get('/api/v1/dashboard/photos/{photo_id}/{variant:thumbnail|full}', [$photoController, 'image'])->add($readAccess);
+        $app->delete('/api/v1/dashboard/photos/{photo_id}', [$photoController, 'delete'])->add($adminWrite);
 
         $app->get('/api/v1/dashboard/events', [$eventController, 'list'])->add($readAccess);
         $app->get('/api/v1/dashboard/events/{id}', [$eventController, 'detail'])->add($readAccess);

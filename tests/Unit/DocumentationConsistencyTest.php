@@ -26,6 +26,10 @@ final class DocumentationConsistencyTest extends TestCase
         self::assertArrayHasKey('/api/v1/dashboard/devices', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/dashboard/devices/{device_uid}/settings', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/auth/login', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/auth/me/preferences', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/measurement-points/{id}/photos', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/photos/{photo_id}/{variant}', $openApi['paths']);
+        self::assertArrayHasKey('/api/v1/dashboard/photos/{photo_id}', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/dashboard/analysis', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/dashboard/events', $openApi['paths']);
         self::assertArrayHasKey('/api/v1/dashboard/exports', $openApi['paths']);
@@ -43,6 +47,8 @@ final class DocumentationConsistencyTest extends TestCase
         self::assertStringContainsString('WPA2-protected Wi-Fi SoftAP', (string) file_get_contents($root . '/docs/DEVICE_PROVISIONING.md'));
         self::assertStringContainsString('plaintext device key exists only', $openApi['paths']['/api/v1/dashboard/devices']['post']['description']);
         self::assertStringContainsString('Behörden-Nachweis (Kernumfang)', (string) file_get_contents($root . '/docs/EXPORTS_AND_COMPLIANCE.md'));
+        self::assertStringContainsString('Photos remain excluded even in the extended profile', (string) file_get_contents($root . '/docs/EXPORTS_AND_COMPLIANCE.md'));
+        self::assertStringContainsString('HEIC and HEIF', (string) file_get_contents($root . '/README.md'));
         self::assertStringContainsString('Firmware handoff ready: **YES**', (string) file_get_contents($root . '/README.md'));
     }
 }

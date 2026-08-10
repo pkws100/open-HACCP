@@ -1,8 +1,16 @@
-const palette = { accent: '#61d6c3', humidity: '#6e91bc', warning: '#e2a64a', danger: '#df7469', grid: '#263b38', text: '#91aaa6', surface: '#101a19' };
+const variables = { accent: '--accent', humidity: '--chart-humidity', warning: '--warning', danger: '--danger', grid: '--line', text: '--muted', surface: '--surface' };
+
+export function chartColor(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(variables[name] || name).trim();
+}
+
+function palette() {
+  return Object.fromEntries(Object.keys(variables).map((name) => [name, chartColor(name)]));
+}
 
 function setup(canvas) {
   const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
-  const width = Math.max(320, canvas.clientWidth || 600);
+  const width = Math.max(240, canvas.clientWidth || 600);
   const height = Number(canvas.getAttribute('height') || 260);
   canvas.width = Math.round(width * ratio);
   canvas.height = Math.round(height * ratio);
@@ -22,10 +30,11 @@ function domain(values, fallback = [0, 1]) {
 }
 
 function grid(context, width, height, pad, min, max, unit = '') {
+  const colors = palette();
   context.font = '10px Inter, system-ui';
   context.textAlign = 'right';
-  context.fillStyle = palette.text;
-  context.strokeStyle = palette.grid;
+  context.fillStyle = colors.text;
+  context.strokeStyle = colors.grid;
   context.lineWidth = 1;
   for (let index = 0; index <= 4; index += 1) {
     const y = pad.top + ((height - pad.top - pad.bottom) / 4) * index;
@@ -36,6 +45,7 @@ function grid(context, width, height, pad, min, max, unit = '') {
 }
 
 export function lineChart(canvas, series, options = {}) {
+  const colors = palette();
   const { context, width, height } = setup(canvas);
   const pad = { left: 48, right: 18, top: 18, bottom: 30 };
   const all = series.flatMap((item) => item.values.map((point) => Number(point.value)));
@@ -44,7 +54,7 @@ export function lineChart(canvas, series, options = {}) {
   const times = series.flatMap((item) => item.values.map((point) => new Date(point.at).getTime())).filter(Number.isFinite);
   const minTime = Math.min(...times); const maxTime = Math.max(...times);
   series.forEach((item, seriesIndex) => {
-    context.strokeStyle = item.color || (seriesIndex ? palette.humidity : palette.accent);
+    context.strokeStyle = item.color || (seriesIndex ? colors.humidity : colors.accent);
     context.lineWidth = item.width || 2;
     context.beginPath();
     let started = false;
@@ -57,12 +67,14 @@ export function lineChart(canvas, series, options = {}) {
     });
     context.stroke();
   });
-  context.textAlign = 'left'; context.fillStyle = palette.text; context.font = '10px Inter, system-ui';
+  context.textAlign = 'left'; context.fillStyle = colors.text; context.font = '10px Inter, system-ui';
   if (Number.isFinite(minTime)) context.fillText(new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' }).format(new Date(minTime)), pad.left, height - 8);
   if (Number.isFinite(maxTime)) { context.textAlign = 'right'; context.fillText(new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' }).format(new Date(maxTime)), width - pad.right, height - 8); }
 }
 
-export function barChart(canvas, rows, { labelKey = 'label', valueKey = 'value', color = palette.warning } = {}) {
+export function barChart(canvas, rows, { labelKey = 'label', valueKey = 'value', color = null } = {}) {
+  const colors = palette();
+  color ||= colors.warning;
   const { context, width, height } = setup(canvas);
   const pad = { left: 40, right: 12, top: 15, bottom: 42 };
   const max = Math.max(1, ...rows.map((row) => Number(row[valueKey]) || 0));
@@ -75,9 +87,20 @@ export function barChart(canvas, rows, { labelKey = 'label', valueKey = 'value',
     context.fillRect(pad.left + index * slot + slot * .18, height - pad.bottom - barHeight, slot * .64, barHeight);
     if (rows.length <= 15 || index % Math.ceil(rows.length / 12) === 0) {
       context.save(); context.translate(pad.left + index * slot + slot / 2, height - pad.bottom + 8); context.rotate(-.55);
-      context.fillStyle = palette.text; context.font = '9px Inter, system-ui'; context.textAlign = 'right'; context.fillText(String(row[labelKey]).slice(0, 10), 0, 0); context.restore();
+      context.fillStyle = colors.text; context.font = '9px Inter, system-ui'; context.textAlign = 'right'; context.fillText(String(row[labelKey]).slice(0, 10), 0, 0); context.restore();
     }
   });
+}
+
+export function observeChartResize(canvases, render) {
+  if (!('ResizeObserver' in window)) return null;
+  let frame = 0;
+  const observer = new ResizeObserver(() => {
+    window.cancelAnimationFrame(frame);
+    frame = window.requestAnimationFrame(render);
+  });
+  canvases.forEach((canvas) => observer.observe(canvas));
+  return observer;
 }
 
 export function accessibleTable(container, caption, headers, rows) {

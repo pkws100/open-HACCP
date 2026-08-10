@@ -160,6 +160,7 @@ abstract class IntegrationTestCase extends TestCase
     {
         $this->pdo->exec('SET FOREIGN_KEY_CHECKS = 0');
         foreach ([
+            'measurement_point_photos',
             'event_verifications', 'corrective_action_revisions', 'corrective_actions', 'compliance_events',
             'export_jobs', 'audit_log', 'audit_chain_state', 'battery_cycles',
             'measurement_point_compliance_configs', 'establishments', 'user_sessions', 'login_attempts',

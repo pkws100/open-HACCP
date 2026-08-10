@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
   <meta name="theme-color" content="#0b1212">
   <title>Open HACCP Monitor</title>
-  <link rel="stylesheet" href="/assets/dashboard.css?v=20260809-2">
+  <script src="/assets/theme-bootstrap.js?v=20260810-1"></script>
+  <link rel="stylesheet" href="/assets/dashboard.css?v=20260810-1">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Zum Inhalt springen</a>
@@ -19,6 +20,11 @@
       <button class="mobile-menu" id="mobile-menu" type="button" aria-expanded="false" aria-controls="primary-nav">Menü</button>
       <div class="topbar-status">
         <span class="live-indicator"><i></i> System aktiv</span>
+        <div class="theme-switcher" aria-label="Farbschema">
+          <button type="button" data-theme-choice="light" aria-label="Helles Farbschema">Hell</button>
+          <button type="button" data-theme-choice="dark" aria-label="Dunkles Farbschema">Dunkel</button>
+          <button type="button" data-theme-choice="system" aria-label="Systemeinstellung verwenden">System</button>
+        </div>
         <button class="user-menu" id="user-menu" type="button"><span id="user-initials">–</span><span id="user-name">Wird geladen</span></button>
         <button class="quiet-button" id="logout" type="button">Abmelden</button>
       </div>
@@ -32,6 +38,26 @@
       <a href="#users" data-view-link="users" data-admin-only><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm-6 9a6 6 0 0 1 12 0m3-8a3 3 0 1 0 0-6m0 9c3 0 5 2 5 5"/></svg><span>Benutzer</span></a>
       <a href="#establishment" data-view-link="establishment" data-admin-only><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M5 21V8l7-5 7 5v13M9 21v-6h6v6"/></svg><span>Betrieb</span></a>
     </nav>
+
+    <nav class="mobile-dock" aria-label="Mobile Hauptnavigation">
+      <a href="#overview" data-view-link="overview" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-13h6V4h-6v3Z"/></svg><span>Übersicht</span></a>
+      <a href="#analysis" data-view-link="analysis"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V9m5 10V5m5 14v-7m5 7V3"/></svg><span>Analyse</span></a>
+      <a href="#events" data-view-link="events"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2.8 20h18.4L12 3Zm0 6v5m0 3v.1"/></svg><span>Abweichung</span></a>
+      <a href="#exports" data-view-link="exports"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l4 4v14H7V3Zm7 0v5h5M10 13h5m-5 4h5"/></svg><span>Exporte</span></a>
+      <button type="button" id="mobile-more-open" aria-expanded="false" aria-controls="mobile-more"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg><span>Mehr</span></button>
+    </nav>
+
+    <div class="mobile-more-backdrop" id="mobile-more-backdrop" hidden></div>
+    <aside class="mobile-more" id="mobile-more" aria-labelledby="mobile-more-title" hidden>
+      <header><div><p class="eyebrow">Konto und Verwaltung</p><h2 id="mobile-more-title">Mehr</h2></div><button class="icon-button" id="mobile-more-close" type="button" aria-label="Menü schließen">×</button></header>
+      <nav aria-label="Weitere Bereiche">
+        <a href="#users" data-view-link="users" data-admin-only>Benutzer</a>
+        <a href="#establishment" data-view-link="establishment" data-admin-only>Betrieb und Messstellen</a>
+      </nav>
+      <section><span class="mobile-label">Farbschema</span><div class="theme-switcher mobile" aria-label="Farbschema"><button type="button" data-theme-choice="light">Hell</button><button type="button" data-theme-choice="dark">Dunkel</button><button type="button" data-theme-choice="system">System</button></div></section>
+      <section class="mobile-account"><strong id="mobile-user-name">Wird geladen</strong><span id="mobile-user-role">–</span></section>
+      <div class="mobile-more-actions"><button class="secondary-button" id="mobile-password" type="button">Passwort ändern</button><button class="secondary-button" id="mobile-logout" type="button">Abmelden</button></div>
+    </aside>
 
     <main id="workspace" class="workspace" tabindex="-1">
       <div id="global-message" class="global-message" role="status" hidden></div>
@@ -76,7 +102,7 @@
       <section class="view" data-view="exports" aria-labelledby="exports-title" hidden>
         <header class="view-heading"><div><p class="eyebrow">Export Center</p><h1 id="exports-title">Prüfbare Nachweise</h1><p>Kompakte Behördenberichte oder erweiterte technische Datenpakete im Hintergrund erzeugen.</p></div></header>
         <div class="export-layout">
-          <form class="editor-panel" id="export-form"><h2>Neuen Export anfordern</h2><div id="export-preflight" class="preflight"></div><div class="form-grid"><label>Von<input type="date" name="from" required></label><label>Bis<input type="date" name="to" required></label><label>Umfang<select name="mode"><option value="authority">Behörden-Nachweis (Kernumfang)</option><option value="extended">Erweiterter Export</option></select></label><label>Format<select name="format"><option value="pdf">PDF-Bericht</option><option value="xlsx">Excel-Arbeitsmappe (XLSX)</option><option value="csv">CSV-Paket (ZIP)</option></select></label><label>Rechtsprofil<select name="legal_profile"><option value="configured">Je Messstelle konfiguriert</option><option value="general_haccp">Allgemeiner DE/EU-HACCP-Nachweis</option><option value="quick_frozen">Tiefkühlmodul</option></select></label><span></span><label>Geräte (leer = alle)<select id="export-devices" multiple size="4" aria-describedby="export-selection-help"></select></label><label>Messstellen (leer = alle)<select id="export-points" multiple size="4" aria-describedby="export-selection-help"></select></label></div><p id="export-selection-help" class="form-note">Mit Strg/Cmd mehrere Einträge wählen. Messstellen werden auf die gewählte Geräteauswahl begrenzt.</p><fieldset id="extended-fields" hidden><legend>Technische Zusatzfelder</legend><div class="check-grid"><label><input type="checkbox" value="humidity"> Feuchte</label><label><input type="checkbox" value="battery"> Batterie</label><label><input type="checkbox" value="battery_forecast"> Batterieprognose</label><label><input type="checkbox" value="rssi"> Funksignal</label><label><input type="checkbox" value="wifi_timing"> WLAN-Zeit</label><label><input type="checkbox" value="firmware"> Firmware/Hardware</label><label><input type="checkbox" value="sequences"> Sequenzen</label><label><input type="checkbox" value="received_at"> Empfangszeiten</label><label><input type="checkbox" value="transmissions"> Übertragungen</label><label><input type="checkbox" value="configuration"> Konfiguration</label></div></fieldset><p class="form-note">Der Kernumfang enthält keine technischen Diagnose- oder Zugangsdaten. PDF fasst zusammen; XLSX und CSV enthalten die vollständigen Einzelwerte.</p><button class="primary-button" type="submit" data-write>Export einreihen</button></form>
+          <form class="editor-panel" id="export-form"><h2>Neuen Export anfordern</h2><div id="export-preflight" class="preflight"></div><div class="form-grid"><label>Von<input type="date" name="from" required></label><label>Bis<input type="date" name="to" required></label><label>Umfang<select name="mode"><option value="authority">Behörden-Nachweis (Kernumfang)</option><option value="extended">Erweiterter Export</option></select></label><label>Format<select name="format"><option value="pdf">PDF-Bericht</option><option value="xlsx">Excel-Arbeitsmappe (XLSX)</option><option value="csv">CSV-Paket (ZIP)</option></select></label><label>Rechtsprofil<select name="legal_profile"><option value="configured">Je Messstelle konfiguriert</option><option value="general_haccp">Allgemeiner DE/EU-HACCP-Nachweis</option><option value="quick_frozen">Tiefkühlmodul</option></select></label><span></span><fieldset class="selection-list"><legend>Geräte (leer = alle)</legend><div id="export-devices" aria-describedby="export-selection-help"></div></fieldset><fieldset class="selection-list"><legend>Messstellen (leer = alle)</legend><div id="export-points" aria-describedby="export-selection-help"></div></fieldset></div><p id="export-selection-help" class="form-note">Mehrere Einträge lassen sich direkt antippen. Messstellen werden auf die gewählte Geräteauswahl begrenzt.</p><fieldset id="extended-fields" hidden><legend>Technische Zusatzfelder</legend><div class="check-grid"><label><input type="checkbox" value="humidity"> Feuchte</label><label><input type="checkbox" value="battery"> Batterie</label><label><input type="checkbox" value="battery_forecast"> Batterieprognose</label><label><input type="checkbox" value="rssi"> Funksignal</label><label><input type="checkbox" value="wifi_timing"> WLAN-Zeit</label><label><input type="checkbox" value="firmware"> Firmware/Hardware</label><label><input type="checkbox" value="sequences"> Sequenzen</label><label><input type="checkbox" value="received_at"> Empfangszeiten</label><label><input type="checkbox" value="transmissions"> Übertragungen</label><label><input type="checkbox" value="configuration"> Konfiguration</label></div></fieldset><p class="form-note">Der Kernumfang enthält keine technischen Diagnose- oder Zugangsdaten. PDF fasst zusammen; XLSX und CSV enthalten die vollständigen Einzelwerte.</p><button class="primary-button" type="submit" data-write>Export einreihen</button></form>
           <aside class="export-guidance"><p class="eyebrow">Datenminimierung</p><h2>So wenig wie nötig</h2><p>Der Behörden-Nachweis beschränkt sich auf Identität, Messauftrag, Temperaturwerte, Vollständigkeit, Abweichungen und Maßnahmen.</p><dl><div><dt>Dateien verfügbar</dt><dd>24 Stunden</dd></div><div><dt>Zeitraum je Datei</dt><dd>max. 366 Tage</dd></div><div><dt>Integrität</dt><dd>SHA-256</dd></div></dl></aside>
         </div>
         <section class="data-section"><div class="section-heading"><div><p class="eyebrow">Aufträge</p><h2>Exportverlauf</h2></div><button class="secondary-button" id="exports-refresh" type="button">Aktualisieren</button></div><div class="table-wrap"><table><thead><tr><th>Erstellt</th><th>Modus</th><th>Format</th><th>Status</th><th>Ersteller</th><th>Prüfsumme / Download</th></tr></thead><tbody id="export-table"></tbody></table></div></section>
@@ -96,6 +122,6 @@
   </div>
 
   <dialog id="app-dialog" class="app-dialog"><div class="dialog-frame"><header><div><p class="eyebrow" id="dialog-eyebrow">Bearbeiten</p><h2 id="dialog-title">Eintrag</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Dialog schließen">×</button></header><div id="dialog-content"></div></div></dialog>
-  <script type="module" src="/assets/app.js?v=20260809-2"></script>
+  <script type="module" src="/assets/app.js?v=20260810-1"></script>
 </body>
 </html>

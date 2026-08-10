@@ -212,15 +212,16 @@ final class ApiIntegrationTest extends IntegrationTestCase
              ('devices', 'measurement_points', 'measurements', 'device_transmissions', 'device_configs',
               'users', 'user_sessions', 'login_attempts', 'establishments', 'measurement_point_compliance_configs',
               'battery_cycles', 'compliance_events', 'corrective_actions', 'corrective_action_revisions',
-              'event_verifications', 'audit_log', 'audit_chain_state', 'export_jobs')",
+              'event_verifications', 'audit_log', 'audit_chain_state', 'export_jobs', 'measurement_point_photos')",
         );
 
-        self::assertCount(18, $statement->fetchAll());
+        self::assertCount(19, $statement->fetchAll());
         $columns = $this->pdo->query(
             "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE()
              AND table_name = 'device_configs' AND column_name IN ('battery_low_mv', 'battery_full_mv')",
         );
         self::assertCount(2, $columns->fetchAll());
+        self::assertSame('system', $this->pdo->query('SELECT theme_preference FROM users LIMIT 1')->fetchColumn());
     }
 
     public function testDashboardRequiresSessionAuthentication(): void

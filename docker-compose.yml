@@ -18,6 +18,8 @@ services:
       DASHBOARD_USERNAME: ${DASHBOARD_USERNAME}
       DASHBOARD_PASSWORD_FILE: /run/secrets/dashboard_password
       EXPORT_PATH: /var/lib/haccp-exports
+      MEDIA_PATH: /var/lib/haccp-media
+      MAX_PHOTO_UPLOAD_BYTES: ${MAX_PHOTO_UPLOAD_BYTES:-12582912}
     secrets:
       - device_api_key_pepper
       - audit_log_key
@@ -36,6 +38,7 @@ services:
     restart: unless-stopped
     volumes:
       - haccp-export-data:/var/lib/haccp-exports
+      - haccp-media-data:/var/lib/haccp-media
 
   worker:
     build:
@@ -182,6 +185,7 @@ volumes:
   haccp-db-data:
   haccp-demo-state:
   haccp-export-data:
+  haccp-media-data:
 
 secrets:
   device_api_key_pepper:

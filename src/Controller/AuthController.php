@@ -71,6 +71,17 @@ final readonly class AuthController
             ->withHeader('Set-Cookie', SessionCookie::clear($secure));
     }
 
+    public function preferences(ServerRequestInterface $request, ResponseInterface $response): ResponseInterface
+    {
+        $payload = JsonBody::decode($request, $this->config->maxRequestBytes);
+        $theme = is_string($payload->theme ?? null) ? $payload->theme : '';
+
+        return JsonResponse::write($response, [
+            'success' => true,
+            'preferences' => $this->auth->updateThemePreference($request->getAttribute('dashboard_user'), $theme),
+        ])->withHeader('Cache-Control', 'no-store');
+    }
+
     private function secureCookie(): bool
     {
         return in_array($this->config->environment, ['production', 'staging'], true);

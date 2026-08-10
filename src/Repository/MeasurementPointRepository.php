@@ -38,6 +38,22 @@ final readonly class MeasurementPointRepository
         return $row === false ? null : $row;
     }
 
+    /** @return array<string, mixed>|null */
+    public function findById(int $id): ?array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT mp.id, mp.device_id, mp.code, mp.name, mp.sensor_type, mp.location, mp.active,
+                    d.device_uid, d.name AS device_name
+             FROM measurement_points mp
+             INNER JOIN devices d ON d.id = mp.device_id
+             WHERE mp.id = :id',
+        );
+        $statement->execute(['id' => $id]);
+        $row = $statement->fetch();
+
+        return $row === false ? null : $row;
+    }
+
     /** @return list<array<string, mixed>> */
     public function activeForDevice(int $deviceId): array
     {

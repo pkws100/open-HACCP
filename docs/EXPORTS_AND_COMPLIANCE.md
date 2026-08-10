@@ -57,6 +57,7 @@ Excluded by default:
 - battery, battery forecast, RSSI and Wi-Fi connection time;
 - firmware/hardware, sequences, batch IDs and transmission diagnostics;
 - IP addresses, user email and internal audit payloads/hashes;
+- measurement-point photos and their revision metadata;
 - passwords, session/device tokens, device keys, peppers, audit keys and Wi-Fi credentials.
 
 The PDF deliberately summarizes by day and point. XLSX/CSV are the formats for a complete selected measurement series.
@@ -66,6 +67,8 @@ The PDF deliberately summarizes by day and point. XLSX/CSV are the formats for a
 Administrators and operators can select additive fields: humidity, battery, forecast, RSSI, Wi-Fi timing, firmware/hardware, sequence, receive time, transmissions and configuration history. Auditors cannot create extended exports.
 
 The selection and all filters are stored in immutable job parameters. An extended XLSX contains the normal sheets plus `Diagnose`, `Übertragungen` and `Konfiguration`. Technical content remains subject to the same secret exclusion.
+
+Photos remain excluded even in the extended profile. They are an authenticated orientation aid for operators, not part of the measured HACCP dataset or a claimed instrument/conformity record. If a future legal profile requires photographic evidence, it must introduce an explicit consent, retention and export policy rather than silently extending the current formats.
 
 ## File and job lifecycle
 
@@ -100,5 +103,6 @@ Stable API error codes include `AUTHENTICATION_REQUIRED`, `PASSWORD_CHANGE_REQUI
 - Only a username/display name is needed; email is optional and excluded from core exports.
 - Users are deactivated, not deleted, because their actions remain referenced.
 - Application logs never receive full request bodies or credentials.
+- Photo originals, original filenames, EXIF and GPS metadata are not retained; normalized variants remain session-protected in a separate volume.
 - Export downloads are audited without logging file contents.
 - Existing measurement retention is not automatically enforced in this version. Business retention is configuration/evidence, and deletion requires a future reviewed retention job.

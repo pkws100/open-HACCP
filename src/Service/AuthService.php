@@ -126,6 +126,21 @@ final readonly class AuthService
         return password_verify($password, (string) $user['password_hash']);
     }
 
+    /** @param array<string, mixed> $user @return array<string, mixed> */
+    public function updateThemePreference(array $user, string $theme): array
+    {
+        if (!in_array($theme, ['system', 'light', 'dark'], true)) {
+            throw new ApiException(422, 'INVALID_THEME_PREFERENCE', 'Das Farbschema muss system, light oder dark sein.');
+        }
+        $this->repository->updateThemePreference(
+            (int) $user['id'],
+            $theme,
+            $this->clock->database($this->clock->now()),
+        );
+
+        return ['theme_preference' => $theme];
+    }
+
     public function hashPassword(string $password): string
     {
         $this->validatePassword($password);
@@ -154,6 +169,9 @@ final readonly class AuthService
             'display_name' => (string) $user['display_name'],
             'email' => $user['email'],
             'role' => (string) $user['role'],
+            'theme_preference' => in_array((string) ($user['theme_preference'] ?? 'system'), ['system', 'light', 'dark'], true)
+                ? (string) ($user['theme_preference'] ?? 'system')
+                : 'system',
             'password_change_required' => (bool) $user['password_change_required'],
             'active' => (bool) $user['active'],
         ];

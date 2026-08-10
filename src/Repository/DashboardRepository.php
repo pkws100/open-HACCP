@@ -21,10 +21,20 @@ final readonly class DashboardRepository
                     (SELECT COUNT(*) FROM measurement_points mp WHERE mp.device_id = d.id AND mp.active = 1) AS measurement_point_count,
                     dc.config_version, dc.alarm_enabled, dc.temperature_min_c, dc.temperature_max_c,
                     dc.battery_low_mv, dc.battery_full_mv, dc.measurement_interval_seconds,
-                    dc.upload_interval_seconds, dc.config_json
+                    dc.upload_interval_seconds, dc.config_json,
+                    photo.public_id AS photo_public_id, photo.revision AS photo_revision,
+                    photo.width AS photo_width, photo.height AS photo_height,
+                    photo.created_at AS photo_created_at
              FROM devices d
              INNER JOIN device_configs dc ON dc.device_id = d.id
                 AND dc.config_version = (SELECT MAX(latest.config_version) FROM device_configs latest WHERE latest.device_id = d.id)
+             LEFT JOIN measurement_points representative ON representative.id = (
+                 SELECT candidate.id FROM measurement_points candidate
+                 WHERE candidate.device_id = d.id AND candidate.active = 1
+                 ORDER BY candidate.name, candidate.code, candidate.id LIMIT 1
+             )
+             LEFT JOIN measurement_point_photos photo ON photo.measurement_point_id = representative.id
+                AND photo.is_current = 1 AND photo.deleted_at IS NULL
              WHERE d.status = \'active\'
              ORDER BY d.name, d.device_uid',
         );
@@ -40,10 +50,20 @@ final readonly class DashboardRepository
                     d.last_seen_at, d.last_rssi_dbm, d.last_battery_mv,
                     dc.config_version, dc.alarm_enabled, dc.temperature_min_c, dc.temperature_max_c,
                     dc.battery_low_mv, dc.battery_full_mv, dc.measurement_interval_seconds,
-                    dc.upload_interval_seconds, dc.config_json
+                    dc.upload_interval_seconds, dc.config_json,
+                    photo.public_id AS photo_public_id, photo.revision AS photo_revision,
+                    photo.width AS photo_width, photo.height AS photo_height,
+                    photo.created_at AS photo_created_at
              FROM devices d
              INNER JOIN device_configs dc ON dc.device_id = d.id
                 AND dc.config_version = (SELECT MAX(latest.config_version) FROM device_configs latest WHERE latest.device_id = d.id)
+             LEFT JOIN measurement_points representative ON representative.id = (
+                 SELECT candidate.id FROM measurement_points candidate
+                 WHERE candidate.device_id = d.id AND candidate.active = 1
+                 ORDER BY candidate.name, candidate.code, candidate.id LIMIT 1
+             )
+             LEFT JOIN measurement_point_photos photo ON photo.measurement_point_id = representative.id
+                AND photo.is_current = 1 AND photo.deleted_at IS NULL
              WHERE d.device_uid = :uid AND d.status = \'active\'',
         );
         $statement->execute(['uid' => $uid]);
@@ -56,11 +76,16 @@ final readonly class DashboardRepository
     public function measurementPoints(int $deviceId): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, code, name, sensor_type, location, temperature_min_c, temperature_max_c,
-                    humidity_min_rh, humidity_max_rh
-             FROM measurement_points
-             WHERE device_id = :device_id AND active = 1
-             ORDER BY name, code',
+            'SELECT mp.id, mp.code, mp.name, mp.sensor_type, mp.location, mp.temperature_min_c, mp.temperature_max_c,
+                    mp.humidity_min_rh, mp.humidity_max_rh,
+                    photo.public_id AS photo_public_id, photo.revision AS photo_revision,
+                    photo.width AS photo_width, photo.height AS photo_height,
+                    photo.created_at AS photo_created_at
+             FROM measurement_points mp
+             LEFT JOIN measurement_point_photos photo ON photo.measurement_point_id = mp.id
+                AND photo.is_current = 1 AND photo.deleted_at IS NULL
+             WHERE mp.device_id = :device_id AND mp.active = 1
+             ORDER BY mp.name, mp.code',
         );
         $statement->execute(['device_id' => $deviceId]);
 

@@ -157,6 +157,7 @@ final readonly class DashboardService
             'latest_temperature_c' => $this->float($latestMeasurement['temperature_c'] ?? null),
             'latest_temperature_measured_at' => $this->timestamp($latestMeasurement['measured_at'] ?? null),
             'measurement_point_count' => isset($row['measurement_point_count']) ? (int) $row['measurement_point_count'] : null,
+            'photo' => $this->photo($row),
             'battery' => [
                 'millivolts' => $batteryMv,
                 'state' => $this->status->battery(
@@ -230,6 +231,26 @@ final readonly class DashboardService
             'temperature_max_c' => $this->float($row['temperature_max_c']),
             'humidity_min_rh' => $this->float($row['humidity_min_rh']),
             'humidity_max_rh' => $this->float($row['humidity_max_rh']),
+            'photo' => $this->photo($row),
+        ];
+    }
+
+    /** @param array<string, mixed> $row @return array<string, mixed>|null */
+    private function photo(array $row): ?array
+    {
+        if (!is_string($row['photo_public_id'] ?? null) || $row['photo_public_id'] === '') {
+            return null;
+        }
+        $publicId = (string) $row['photo_public_id'];
+
+        return [
+            'photo_id' => $publicId,
+            'revision' => (int) $row['photo_revision'],
+            'thumbnail_url' => '/api/v1/dashboard/photos/' . rawurlencode($publicId) . '/thumbnail',
+            'full_url' => '/api/v1/dashboard/photos/' . rawurlencode($publicId) . '/full',
+            'width' => (int) $row['photo_width'],
+            'height' => (int) $row['photo_height'],
+            'created_at' => $this->timestamp($row['photo_created_at']),
         ];
     }
 

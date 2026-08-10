@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260809-2';
-import { accessibleTable, barChart, lineChart } from '../charts.js?v=20260809-2';
-import { escapeHtml, formatNumber, metric } from '../format.js?v=20260809-2';
+import { api } from '../api.js?v=20260810-1';
+import { accessibleTable, barChart, lineChart, chartColor, observeChartResize } from '../charts.js?v=20260810-1';
+import { escapeHtml, formatNumber, metric } from '../format.js?v=20260810-1';
 
 const state = { days: 30, device: '', point: '', data: null, initialized: false };
 let context;
@@ -13,6 +13,13 @@ export const analysisView = {
     document.querySelector('#analysis-point').addEventListener('change', (event) => { state.point = event.target.value; load(); });
     document.querySelectorAll('[data-days]').forEach((button) => button.addEventListener('click', () => { state.days = Number(button.dataset.days); document.querySelectorAll('[data-days]').forEach((candidate) => candidate.classList.toggle('is-active', candidate === button)); load(); }));
     window.addEventListener('resize', () => state.data && render());
+    window.addEventListener('haccp:themechange', () => state.data && render());
+    observeChartResize([
+      document.querySelector('#analysis-measurements'),
+      document.querySelector('#analysis-events'),
+      document.querySelector('#analysis-battery'),
+      document.querySelector('#analysis-connections'),
+    ], () => state.data && render());
   },
   async load() {
     await ensureDevices(); await loadPoints(); await load();
@@ -52,13 +59,13 @@ function render() {
   ].join('');
 
   lineChart(document.querySelector('#analysis-measurements'), [
-    { values: data.measurements.map((row) => ({ at: row.measured_at, value: row.temperature_c })), color: '#61d6c3' },
-    { values: data.measurements.map((row) => ({ at: row.measured_at, value: row.humidity_rh })), color: '#6e91bc', width: 1.3 },
+    { values: data.measurements.map((row) => ({ at: row.measured_at, value: row.temperature_c })), color: chartColor('accent') },
+    { values: data.measurements.map((row) => ({ at: row.measured_at, value: row.humidity_rh })), color: chartColor('humidity'), width: 1.3 },
   ]);
   accessibleTable(document.querySelector('#analysis-measurements-table'), 'Messwerte', ['Zeitpunkt', 'Gerät', 'Messstelle', 'Temperatur', 'Feuchte'], data.measurements.slice(-1000).map((row) => [row.measured_at, row.device_uid, row.point_code, row.temperature_c, row.humidity_rh]));
 
   const dailyEvents = aggregateEvents(data.events_by_day);
-  barChart(document.querySelector('#analysis-events'), dailyEvents, { color: '#e2a64a' });
+  barChart(document.querySelector('#analysis-events'), dailyEvents, { color: chartColor('warning') });
   accessibleTable(document.querySelector('#analysis-events-table'), 'Ereignisse nach Tag, Art und Schwere', ['Tag', 'Art', 'Schwere', 'Anzahl'], data.events_by_day.map((row) => [row.day, row.event_type, row.severity, row.event_count]));
 
   const battery = data.battery;
@@ -69,14 +76,14 @@ function render() {
   const batterySeries = (battery.series || []).map((row) => ({ at: row.at, value: row.mv }));
   const thresholdSeries = battery.low_threshold_mv && batterySeries.length ? batterySeries.map((row) => ({ at: row.at, value: battery.low_threshold_mv })) : [];
   lineChart(document.querySelector('#analysis-battery'), [
-    { values: batterySeries, color: '#e2a64a' },
-    { values: thresholdSeries, color: '#df7469', width: 1.2 },
+    { values: batterySeries, color: chartColor('warning') },
+    { values: thresholdSeries, color: chartColor('danger'), width: 1.2 },
   ], { unit: ' mV' });
   accessibleTable(document.querySelector('#analysis-battery-table'), 'Batterieverlauf', ['Zeitpunkt', 'Millivolt', 'Niedrigschwelle'], (battery.series || []).map((row) => [row.at, row.mv, battery.low_threshold_mv]));
 
   lineChart(document.querySelector('#analysis-connections'), [
-    { values: data.connections_by_day.map((row) => ({ at: `${row.day}T12:00:00Z`, value: Number(row.average_rssi_dbm) })), color: '#61d6c3' },
-    { values: data.connections_by_day.map((row) => ({ at: `${row.day}T12:00:00Z`, value: Number(row.transmissions) })), color: '#6e91bc', width: 1.3 },
+    { values: data.connections_by_day.map((row) => ({ at: `${row.day}T12:00:00Z`, value: Number(row.average_rssi_dbm) })), color: chartColor('accent') },
+    { values: data.connections_by_day.map((row) => ({ at: `${row.day}T12:00:00Z`, value: Number(row.transmissions) })), color: chartColor('humidity'), width: 1.3 },
   ]);
   const availabilityRows = data.availability.map((row) => [`Verfügbarkeit ${row.name}`, `${row.transmissions}/${row.expected_transmissions}`, null, null, `${row.availability_percent} %`]);
   accessibleTable(document.querySelector('#analysis-connections-table'), 'Verbindungsqualität und Verfügbarkeit', ['Tag / Gerät', 'Übertragungen', 'RSSI dBm', 'WLAN ms', 'Ablehnungen / Verfügbarkeit'], [...data.connections_by_day.map((row) => [row.day, row.transmissions, row.average_rssi_dbm, row.average_wifi_connect_ms, row.rejected_measurements]), ...availabilityRows]);
