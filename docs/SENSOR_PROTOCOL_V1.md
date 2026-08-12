@@ -32,6 +32,16 @@ The device key contains 32 random bytes encoded as 64 hexadecimal characters. Th
 
 These limits detect technical errors and are not HACCP alarm thresholds. Batch metadata, diagnostics, and heartbeat objects may contain new metadata fields. Measurement objects are strict: unknown fields reject that individual measurement.
 
+## Optional firmware identity and operational state
+
+Power-managed firmware may include the same three optional top-level objects in a measurement batch or heartbeat. Their absence keeps older V1 clients valid.
+
+- `device_info` reports board and chip model/revision, CPU cores, actual flash/PSRAM/free-heap bytes, sensor model/status, compiled queue capacity, and stable capability codes. It contains no MAC address, WLAN name, credential or serial secret.
+- `operational_status` reports `provisioned`, current queue depth, awake duration, wake/reset reason, intended sleep mode, WLAN and HTTPS failures accumulated since their last successful report, maximum consecutive WLAN failures, and sleep-fallback count.
+- `config_ack` reports `applied_version` plus `default`, `applied`, or `rejected`. It confirms the version durably activated by firmware, not merely the version returned by the server.
+
+The backend validates and stores these blocks with the transmission, keeps the latest device identity and applied-config acknowledgement, and exposes them through the authenticated dashboard overview. Failure counters can only arrive after connectivity recovers; they are historical diagnostics rather than real-time proof that an offline device is alive. A firmware clears only telemetry that was part of a successfully processed authenticated request.
+
 ## Measurement batch
 
 `POST /api/v1/device/measurements` accepts the request defined by [`protocol-v1.schema.json`](protocol-v1.schema.json). All shown fields are required.
@@ -50,6 +60,32 @@ These limits detect technical errors and are not HACCP alarm thresholds. Batch m
     "boot_count": 42,
     "errors": ["RTC_SYNC_RETRIED"]
   },
+  "device_info": {
+    "board_model": "ESP32-S3-DevKitC-1",
+    "chip_model": "ESP32-S3",
+    "chip_revision": 0,
+    "cpu_cores": 2,
+    "flash_bytes": 8388608,
+    "psram_bytes": 0,
+    "heap_free_bytes": 241920,
+    "sensor_model": "SHT45",
+    "sensor_status": "ready",
+    "queue_capacity": 64,
+    "capabilities": ["temperature", "humidity", "battery", "wifi_rssi", "deep_sleep", "remote_config", "provisioning_ap"]
+  },
+  "operational_status": {
+    "provisioned": true,
+    "queue_depth": 3,
+    "awake_ms": 2450,
+    "wake_reason": "timer",
+    "reset_reason": "deep_sleep",
+    "requested_sleep_mode": "deep_sleep",
+    "wifi_failures_since_report": 5,
+    "upload_failures_since_report": 1,
+    "max_consecutive_wifi_failures": 5,
+    "sleep_fallbacks_since_report": 0
+  },
+  "config_ack": {"applied_version": 3, "status": "applied"},
   "measurements": [{
     "measurement_point": "fridge-1",
     "sequence": 1001,
@@ -130,6 +166,8 @@ An authenticated operator may create a new version through the separate dashboar
 
 `POST /api/v1/device/heartbeat` requires protocol version, firmware and hardware versions, battery, RSSI, Wi-Fi connection duration, and boot counter. Its optional top-level `errors` array follows the same code rules. It updates device status and creates a diagnostic transmission without measurements. Its successful response also contains the full current `configuration`, so a wake cycle can report diagnostics and update scheduling in one HTTPS exchange.
 
+Firmware validates and persists a newer configuration before using its cadence. The ESP32 reference sends a confirmation heartbeat in the same wake cycle with `config_ack.status: applied`; if that confirmation fails, the next normal batch or heartbeat repeats the acknowledgement. Until it arrives, the dashboard deliberately shows the newer server version as pending. A rejected/malformed configuration leaves the last known-good schedule active, reports `rejected`, and causes the firmware to try the explicit config endpoint with persisted backoff.
+
 Only operational, non-secret configuration is returned. WLAN credentials, device keys, setup passwords, and other provisioning secrets are never included in config, heartbeat, or batch responses. `GET /config` remains the authoritative fallback and explicit configuration check.
 
 Events, corrective actions, analyses and exports are dashboard functions and do not alter Sensor Protocol V1. The server derives state events for temperature, low battery, weak RSSI and offline devices, plus discrete rejections, gaps and firmware codes. ACK/rejection correlation remains the only authority for deleting firmware queue records.
@@ -151,7 +189,7 @@ All errors use `{ "success": false, "error": { "code": "...", "message": "..." }
 | 429 | Reserved for rate limiting |
 | 500 | Internal error |
 
-Stable envelope/heartbeat codes include `INVALID_JSON`, `UNSUPPORTED_PROTOCOL_VERSION`, `MISSING_REQUIRED_FIELD`, `INVALID_BATCH_ID`, `INVALID_FIRMWARE_VERSION`, `INVALID_HARDWARE_REVISION`, `INVALID_SENT_AT`, `INVALID_DIAGNOSTICS`, `EMPTY_BATCH`, `BATCH_SIZE_EXCEEDED`, and `INVALID_HEARTBEAT`.
+Stable envelope/heartbeat codes include `INVALID_JSON`, `UNSUPPORTED_PROTOCOL_VERSION`, `MISSING_REQUIRED_FIELD`, `INVALID_BATCH_ID`, `INVALID_FIRMWARE_VERSION`, `INVALID_HARDWARE_REVISION`, `INVALID_SENT_AT`, `INVALID_DIAGNOSTICS`, `INVALID_DEVICE_INFO`, `INVALID_OPERATIONAL_STATUS`, `INVALID_CONFIG_ACK`, `EMPTY_BATCH`, `BATCH_SIZE_EXCEEDED`, and `INVALID_HEARTBEAT`.
 
 Stable measurement rejection codes include `MISSING_MEASUREMENT_FIELD`, `UNKNOWN_MEASUREMENT_FIELD`, `INVALID_MEASUREMENT_POINT`, `UNKNOWN_MEASUREMENT_POINT`, `INVALID_SEQUENCE`, `INVALID_MEASURED_AT`, `INVALID_TEMPERATURE`, `INVALID_HUMIDITY`, `INVALID_BATTERY`, `INVALID_MEASUREMENT`, and `SEQUENCE_CONFLICT`.
 

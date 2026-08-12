@@ -64,8 +64,8 @@ The embedded trust anchor in this reference is ISRG Root X1, not a leaf certific
 The buildable ESP32-S3/SHT45 reference lives in [`firmware/esp32-s3`](../firmware/esp32-s3):
 
 - `ProvisioningPortal`: WPA2 SoftAP, captive redirects, WLAN scan, field validation, verify-before-save flow
-- `DeviceState`: NVS provisioning/config, monotonic sequence, boot counter, durable 64-record queue
-- `HaccpClient`: verified HTTPS, config, heartbeat, batch upload, exact ACK correlation
-- `main.cpp`: SHT45 sampling, local alarm evaluation, reconnect/retry loop, periodic config refresh
+- `DeviceState`: NVS provisioning/config, monotonic sequence, durable 64-record queue, scheduler deadlines, retry counters, config acknowledgement and failure flags
+- `HaccpClient`: verified HTTPS, config, heartbeat, batch upload, exact ACK correlation, device capability/status telemetry and piggyback-config validation
+- `main.cpp`: bounded Wake–Measure–Store–Transmit–Sleep cycle, persisted retry backoff and Deep-Sleep → Light-Sleep → restart fallback
 
-It is an awake prototype suitable for bench testing, not yet a power-optimized deep-sleep product firmware. The implementation brief for the next firmware task is [`FIRMWARE_IMPLEMENTATION_HANDOFF.md`](FIRMWARE_IMPLEMENTATION_HANDOFF.md). Hardware validation, battery-divider calibration, manufacturing secrets, Secure Boot/Flash Encryption, OTA, and final enclosure/reset behavior remain release gates.
+It is the first buildable power-managed implementation and is suitable for firmware/hardware bench testing. The exact board still needs measured sleep/wake current, battery-divider and SHT45 validation, queue sizing for the promised offline duration, destructive power-loss tests, manufacturing secrets, Secure Boot/Flash Encryption, encrypted NVS, OTA, and final enclosure/reset validation before a production release. The remaining evidence gates are tracked in [`FIRMWARE_IMPLEMENTATION_HANDOFF.md`](FIRMWARE_IMPLEMENTATION_HANDOFF.md).

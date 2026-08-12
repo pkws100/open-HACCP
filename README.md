@@ -132,7 +132,19 @@ The stable device endpoints are:
 - `POST /api/v1/device/heartbeat`
 - `GET /api/v1/device/config`
 
-Successful measurement and heartbeat responses contain the complete current operational configuration, so a deep-sleep wake cycle can upload and adopt a newer schedule in one TLS connection. Diagnostic `errors` is an optional additive array of stable firmware codes. Existing V1 requests remain valid.
+The checked-in ESP32-S3/SHT45 firmware now runs a bounded wake–measure–persist–transmit–sleep cycle. It persists sampling, upload, config-check and retry deadlines, applies the provisioned point's effective interval, uses 1/5/15/30/60-minute retry backoff with jitter, and falls back from Deep Sleep to Light Sleep and finally a bounded restart wait. Successful measurement and heartbeat responses contain the complete current operational configuration, so a wake cycle can upload and atomically adopt a newer schedule in one TLS connection.
+
+New firmware optionally reports `device_info`, `operational_status`, and `config_ack`: actual board/chip/sensor and memory capacity, offline queue occupancy, wake/reset reason, accumulated WLAN/HTTPS failures, sleep fallbacks, and the configuration version really applied by the device. The dashboard displays the hardware details and distinguishes a saved server version from a device-confirmed version. Diagnostic `errors` remains an additive array of stable, secret-free codes, so existing V1 clients stay valid.
+
+Build the normal and forced-fallback profiles without committing `BuildSecrets.h`:
+
+```bash
+cd firmware/esp32-s3
+pio run -e esp32-s3-devkitc-1
+pio run -e esp32-s3-devkitc-1-sleep-fallback
+```
+
+The forced-fallback profile is a bench aid; production uses the normal profile. Hardware current measurement, battery-divider calibration, queue sizing for the promised offline horizon, Secure Boot/Flash Encryption, encrypted NVS, OTA and destructive power-loss tests remain production gates.
 
 See [`docs/SENSOR_PROTOCOL_V1.md`](docs/SENSOR_PROTOCOL_V1.md), [`docs/FIRMWARE_CONTRACT.md`](docs/FIRMWARE_CONTRACT.md) and [`docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md`](docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md).
 
@@ -183,7 +195,7 @@ docker compose --profile test run --rm --build tests
 docker compose --profile test down
 ```
 
-The suite migrates an empty MariaDB database and verifies protocol limits/idempotency, diagnostics, device/config behavior, Argon2id, sessions/CSRF/roles, photo authorization/history/deletion, image variants and metadata stripping, account themes, compliance versioning, event lifecycle, audit integrity, analysis, exports and secret-free logs. Browser QA covers 320/375/430 px phones, desktop, role menus, photo upload/viewer, all themes, dialogs, keyboard access, reduced motion and horizontal overflow.
+The suite migrates an empty MariaDB database and verifies protocol limits/idempotency, legacy and power-managed firmware telemetry, applied-config acknowledgement, device/config behavior, Argon2id, sessions/CSRF/roles, photo authorization/history/deletion, image variants and metadata stripping, account themes, compliance versioning, event lifecycle, audit integrity, analysis, exports and secret-free logs. Browser QA covers 320/375/430 px phones, desktop, role menus, photo upload/viewer, all themes, dialogs, keyboard access, reduced motion and horizontal overflow.
 
 ## Data and log safety
 
@@ -201,4 +213,4 @@ docker compose exec app php bin/audit-verify
 
 The product deliberately uses the term **Behörden-Nachweis (Kernumfang)** instead of claiming a universally complete statutory dataset. The design references Article 5 of Regulation (EC) No 852/2004, EU guidance 2022/C 355/01, Regulation (EC) No 37/2005 and German § 2a TLMV. Evidence scope and retention remain a business HACCP decision unless a specific profile imposes a minimum.
 
-Firmware handoff ready: **YES** — Sensor Protocol V1, JSON Schema, OpenAPI and firmware contract use the same endpoints, limits, optional diagnostics and piggyback configuration semantics.
+Firmware handoff ready: **YES** — the first power-managed ESP32-S3 implementation, Sensor Protocol V1, JSON Schema, OpenAPI and firmware contract use the same endpoints, optional hardware/operational telemetry, applied-config acknowledgement and piggyback configuration semantics. This is a software-build statement, not hardware or regulatory certification.

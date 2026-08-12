@@ -89,9 +89,9 @@ battery_mv        : integer, 0..10000
 upload_state      : pending | acknowledged
 ```
 
-Sequence state must survive reset and deep sleep. Never reuse a sequence for changed data. A batch may contain more than one measurement point, but sequences are independent per point. The ESP32 reference intentionally compiles a 64-record durable queue and therefore caps a server-provided larger batch size at 64; a client may use a lower compiled maximum than the protocol limit.
+Sequence state must survive reset and deep sleep. Never reuse a sequence for changed data. A batch may contain more than one measurement point, but sequences are independent per point. The current ESP32-S3/SHT45 build represents one provisioned physical point, selects that point's effective server interval, compiles a 64-record durable queue, and caps a server-provided larger batch size at 64; another client may support more physical points or a different lower compiled maximum than the protocol limit.
 
-Durably store, as one recoverable state, the current config version, the effective schedule for every point, each point's next-due deadline, the upload deadline, retry/backoff state, boot counter, monotonic sequences, and the pending queue. Wake/reset must reconstruct the same pending records and deadlines. A production firmware must size storage for the selected offline guarantee; the current 64-record awake reference is not sufficient for every combination of interval, upload cadence, and outage duration.
+Durably store the current config and applied-version acknowledgement, effective interval for every supported physical point, last sample/upload/config-check and retry deadlines, retry counters, boot counter, monotonic sequences, pending queue and stable failure flags. Wake/reset must reconstruct the same pending records and deadlines. The checked-in power-managed reference persists these domains in NVS. A production firmware must still size storage for the selected offline guarantee and complete destructive power-loss/A-B or journal recovery tests; 64 records are not sufficient for every interval, upload cadence and outage duration.
 
 ## Batch request
 
@@ -111,6 +111,32 @@ All fields below are required. Maximum `measurements` length is the smaller of t
     "boot_count": 42,
     "errors": ["RTC_SYNC_RETRIED"]
   },
+  "device_info": {
+    "board_model": "ESP32-S3-DevKitC-1",
+    "chip_model": "ESP32-S3",
+    "chip_revision": 0,
+    "cpu_cores": 2,
+    "flash_bytes": 8388608,
+    "psram_bytes": 0,
+    "heap_free_bytes": 241920,
+    "sensor_model": "SHT45",
+    "sensor_status": "ready",
+    "queue_capacity": 64,
+    "capabilities": ["temperature", "humidity", "battery", "wifi_rssi", "deep_sleep", "remote_config", "provisioning_ap"]
+  },
+  "operational_status": {
+    "provisioned": true,
+    "queue_depth": 3,
+    "awake_ms": 2450,
+    "wake_reason": "timer",
+    "reset_reason": "deep_sleep",
+    "requested_sleep_mode": "deep_sleep",
+    "wifi_failures_since_report": 5,
+    "upload_failures_since_report": 1,
+    "max_consecutive_wifi_failures": 5,
+    "sleep_fallbacks_since_report": 0
+  },
+  "config_ack": {"applied_version": 3, "status": "applied"},
   "measurements": [{
     "measurement_point": "fridge-1",
     "sequence": 1001,
@@ -134,6 +160,8 @@ Required diagnostic ranges:
 | boot count | 0..4294967295 | count |
 
 An optional `errors` array may contain at most 20 unique stable codes matching `[A-Z0-9_.-]{1,64}`. Use it only for durable machine-readable conditions such as queue pressure, sensor recovery or repeated UTC synchronization failure. Never include SSIDs, passwords, credential-bearing URLs, device keys, request bodies or personal data. Heartbeat accepts the same optional top-level `errors` array. Omitting it remains fully compatible with V1.
+
+`device_info`, `operational_status`, and `config_ack` are optional additive V1 objects. They expose real hardware/sensor/capacity data, wake/sleep and accumulated connection-health counters, plus the configuration version actually committed by the unit. The backend stores each report and shows the latest state in the protected dashboard. Because failed WLAN or HTTPS attempts cannot be reported while the unit is offline, their counters are sent after recovery and cleared only after that authenticated envelope is accepted. `config_ack` is not a server command and contains no provisioning material.
 
 ## Processing the batch response
 
@@ -188,6 +216,8 @@ Dashboard operators can change the inclusive temperature range, enable flag, dev
 
 Successful batch and heartbeat responses contain the same complete object as `configuration`. Prefer this piggyback when its version is newer, validate it independently, and persist it atomically after response identity/ACK processing. If it is absent or invalid, retain the last known-good config and use `GET /api/v1/device/config` on the next eligible connection. Never expect WLAN credentials, device keys, setup passwords, or other provisioning secrets in an operational response; the backend deliberately never returns them.
 
+After durable activation, send the applied version in `config_ack`. The ESP32 reference uses one confirmation heartbeat in the same wake cycle and repeats the acknowledgement on every later batch/heartbeat; a failed confirmation never rolls back the locally valid config. `status: applied` means that exact version controls the scheduler. `status: rejected` means the last known-good configuration remains active and an explicit config check is pending. The backend/dashboard must compare this acknowledgement with the newest stored server version instead of assuming that delivery equals application.
+
 ## Heartbeat request
 
 Send a heartbeat when an upload connection is made but no measurements are pending:
@@ -200,7 +230,20 @@ Send a heartbeat when an upload connection is made but no measurements are pendi
   "battery_mv": 6127,
   "rssi_dbm": -58,
   "wifi_connect_ms": 1834,
-  "boot_count": 42
+  "boot_count": 42,
+  "operational_status": {
+    "provisioned": true,
+    "queue_depth": 0,
+    "awake_ms": 2200,
+    "wake_reason": "timer",
+    "reset_reason": "deep_sleep",
+    "requested_sleep_mode": "deep_sleep",
+    "wifi_failures_since_report": 5,
+    "upload_failures_since_report": 1,
+    "max_consecutive_wifi_failures": 5,
+    "sleep_fallbacks_since_report": 0
+  },
+  "config_ack": {"applied_version": 3, "status": "applied"}
 }
 ```
 

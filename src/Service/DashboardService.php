@@ -151,6 +151,15 @@ final readonly class DashboardService
             'status' => $row['status'],
             'hardware_revision' => $row['hardware_revision'],
             'firmware_version' => $row['firmware_version'],
+            'device_info' => $this->jsonObject($row['device_info_json'] ?? null),
+            'configuration_delivery' => [
+                'current_version' => isset($row['config_version']) ? (int) $row['config_version'] : null,
+                'applied_version' => isset($row['last_applied_config_version']) ? (int) $row['last_applied_config_version'] : null,
+                'status' => $row['last_config_status'] ?? null,
+                'up_to_date' => isset($row['config_version'], $row['last_applied_config_version'])
+                    && (int) $row['config_version'] === (int) $row['last_applied_config_version']
+                    && ($row['last_config_status'] ?? null) === 'applied',
+            ],
             'last_seen_at' => $this->timestamp($row['last_seen_at']),
             'last_rssi_dbm' => $rssiDbm,
             'last_battery_mv' => $batteryMv,
@@ -292,7 +301,33 @@ final readonly class DashboardService
             'accepted_count' => (int) $row['accepted_count'],
             'duplicate_count' => (int) $row['duplicate_count'],
             'rejected_count' => (int) $row['rejected_count'],
+            'device_info' => $this->jsonObject($row['device_info_json'] ?? null),
+            'operational_status' => $this->jsonObject($row['operational_status_json'] ?? null),
+            'config_ack' => isset($row['applied_config_version']) ? [
+                'applied_version' => (int) $row['applied_config_version'],
+                'status' => $row['config_apply_status'],
+            ] : null,
+            'diagnostic_errors' => $this->jsonList($row['diagnostic_errors_json'] ?? null),
         ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function jsonObject(mixed $value): ?array
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /** @return list<mixed> */
+    private function jsonList(mixed $value): array
+    {
+        $decoded = $this->jsonObject($value);
+
+        return $decoded === null ? [] : array_values($decoded);
     }
 
     private function float(mixed $value): ?float

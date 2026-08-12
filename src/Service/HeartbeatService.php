@@ -43,6 +43,14 @@ final readonly class HeartbeatService
                 'received_at' => $databaseNow,
                 'firmware_version' => $heartbeat['firmware_version'],
                 'hardware_revision' => $heartbeat['hardware_revision'],
+                'device_info_json' => $heartbeat['device_info'] === null ? null : json_encode($heartbeat['device_info'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+                'operational_status_json' => $heartbeat['operational_status'] === null ? null : json_encode($heartbeat['operational_status'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+                'applied_config_version' => $heartbeat['config_ack']['applied_version'] ?? null,
+                'config_apply_status' => $heartbeat['config_ack']['status'] ?? null,
+                'queue_depth' => $heartbeat['operational_status']['queue_depth'] ?? null,
+                'wifi_failures_since_report' => $heartbeat['operational_status']['wifi_failures_since_report'] ?? null,
+                'upload_failures_since_report' => $heartbeat['operational_status']['upload_failures_since_report'] ?? null,
+                'sleep_fallbacks_since_report' => $heartbeat['operational_status']['sleep_fallbacks_since_report'] ?? null,
                 'battery_mv' => $heartbeat['battery_mv'],
                 'rssi_dbm' => $heartbeat['rssi_dbm'],
                 'wifi_connect_ms' => $heartbeat['wifi_connect_ms'],
@@ -63,6 +71,8 @@ final readonly class HeartbeatService
                 (int) $heartbeat['rssi_dbm'],
                 $remoteIp,
                 $databaseNow,
+                $heartbeat['device_info'],
+                $heartbeat['config_ack'],
             );
             $this->eventService->diagnostics(
                 $device->id,

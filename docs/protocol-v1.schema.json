@@ -40,6 +40,62 @@
       },
       "additionalProperties": true
     },
+    "deviceInfo": {
+      "type": "object",
+      "required": [
+        "board_model", "chip_model", "chip_revision", "cpu_cores", "flash_bytes", "psram_bytes",
+        "heap_free_bytes", "sensor_model", "sensor_status", "queue_capacity", "capabilities"
+      ],
+      "properties": {
+        "board_model": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._+ -]*$" },
+        "chip_model": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._+ -]*$" },
+        "chip_revision": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "cpu_cores": { "type": "integer", "minimum": 1, "maximum": 8 },
+        "flash_bytes": { "type": "integer", "minimum": 0, "maximum": 17179869184 },
+        "psram_bytes": { "type": "integer", "minimum": 0, "maximum": 17179869184 },
+        "heap_free_bytes": { "type": "integer", "minimum": 0, "maximum": 17179869184 },
+        "sensor_model": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._+ -]*$" },
+        "sensor_status": { "enum": ["ready", "unavailable", "error"] },
+        "queue_capacity": { "type": "integer", "minimum": 1, "maximum": 5000 },
+        "capabilities": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "operationalStatus": {
+      "type": "object",
+      "required": [
+        "provisioned", "queue_depth", "awake_ms", "wake_reason", "reset_reason", "requested_sleep_mode",
+        "wifi_failures_since_report", "upload_failures_since_report", "max_consecutive_wifi_failures",
+        "sleep_fallbacks_since_report"
+      ],
+      "properties": {
+        "provisioned": { "type": "boolean" },
+        "queue_depth": { "type": "integer", "minimum": 0, "maximum": 5000 },
+        "awake_ms": { "type": "integer", "minimum": 0, "maximum": 3600000 },
+        "wake_reason": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+        "reset_reason": { "type": "string", "pattern": "^[a-z][a-z0-9_]{0,31}$" },
+        "requested_sleep_mode": { "enum": ["deep_sleep", "light_sleep_fallback", "awake_restart_fallback", "none"] },
+        "wifi_failures_since_report": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "upload_failures_since_report": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "max_consecutive_wifi_failures": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "sleep_fallbacks_since_report": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+      },
+      "additionalProperties": false
+    },
+    "configAcknowledgement": {
+      "type": "object",
+      "required": ["applied_version", "status"],
+      "properties": {
+        "applied_version": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "status": { "enum": ["default", "applied", "rejected"] }
+      },
+      "additionalProperties": false
+    },
     "measurement": {
       "type": "object",
       "required": [
@@ -92,6 +148,9 @@
         "hardware_revision": { "$ref": "#/$defs/versionString" },
         "sent_at": { "$ref": "#/$defs/utcTimestamp" },
         "diagnostics": { "$ref": "#/$defs/diagnostics" },
+        "device_info": { "$ref": "#/$defs/deviceInfo" },
+        "operational_status": { "$ref": "#/$defs/operationalStatus" },
+        "config_ack": { "$ref": "#/$defs/configAcknowledgement" },
         "measurements": {
           "type": "array",
           "minItems": 1,
@@ -125,7 +184,10 @@
           "maxItems": 20,
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^[A-Z0-9_.-]{1,64}$" }
-        }
+        },
+        "device_info": { "$ref": "#/$defs/deviceInfo" },
+        "operational_status": { "$ref": "#/$defs/operationalStatus" },
+        "config_ack": { "$ref": "#/$defs/configAcknowledgement" }
       },
       "additionalProperties": true
     }

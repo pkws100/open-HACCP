@@ -62,7 +62,7 @@ final readonly class AnalysisRepository
     /** @return list<array<string, mixed>> */
     public function eventDaily(string $from, string $to, ?string $deviceUid): array
     {
-        $where = ['e.opened_at >= :from', 'e.opened_at <= :to'];
+        $where = ['e.opened_at >= :from', 'e.opened_at <= :to', "d.status = 'active'"];
         $params = ['from' => $from, 'to' => $to];
         if ($deviceUid !== null) {
             $where[] = 'd.device_uid = :device_uid';
@@ -110,15 +110,45 @@ final readonly class AnalysisRepository
     }
 
     /** @return array<string, mixed> */
-    public function fleetKpis(string $from): array
+    public function fleetKpis(string $from, string $to, ?string $deviceUid, ?int $pointId): array
     {
+        $deviceWhere = ["d.status = 'active'"];
+        $eventWhere = ["e.state <> 'resolved'", "d.status = 'active'"];
+        $measurementWhere = ['m.measured_at >= :measurement_from', 'm.measured_at <= :measurement_to', "d.status = 'active'"];
+        $transmissionWhere = ['t.received_at >= :transmission_from', 't.received_at <= :transmission_to', "d.status = 'active'"];
+        $params = [
+            'measurement_from' => $from,
+            'measurement_to' => $to,
+            'transmission_from' => $from,
+            'transmission_to' => $to,
+        ];
+        if ($deviceUid !== null) {
+            $deviceWhere[] = 'd.device_uid = :device_uid';
+            $eventWhere[] = 'd.device_uid = :event_device_uid';
+            $measurementWhere[] = 'd.device_uid = :measurement_device_uid';
+            $transmissionWhere[] = 'd.device_uid = :transmission_device_uid';
+            $params['device_uid'] = $deviceUid;
+            $params['event_device_uid'] = $deviceUid;
+            $params['measurement_device_uid'] = $deviceUid;
+            $params['transmission_device_uid'] = $deviceUid;
+        }
+        if ($pointId !== null) {
+            $deviceWhere[] = 'EXISTS (SELECT 1 FROM measurement_points dp WHERE dp.device_id = d.id AND dp.id = :device_point_id AND dp.active = 1)';
+            $eventWhere[] = 'e.measurement_point_id = :event_point_id';
+            $measurementWhere[] = 'm.measurement_point_id = :measurement_point_id';
+            $transmissionWhere[] = 'EXISTS (SELECT 1 FROM measurement_points tp WHERE tp.device_id = d.id AND tp.id = :transmission_point_id AND tp.active = 1)';
+            $params['device_point_id'] = $pointId;
+            $params['event_point_id'] = $pointId;
+            $params['measurement_point_id'] = $pointId;
+            $params['transmission_point_id'] = $pointId;
+        }
         $statement = $this->pdo->prepare(
-            "SELECT (SELECT COUNT(*) FROM devices WHERE status = 'active') AS devices,
-                    (SELECT COUNT(*) FROM compliance_events WHERE state <> 'resolved') AS open_events,
-                    (SELECT COUNT(*) FROM measurements WHERE measured_at >= :from) AS measurements,
-                    (SELECT COALESCE(SUM(rejected_count), 0) FROM device_transmissions WHERE received_at >= :from2) AS rejections",
+            'SELECT (SELECT COUNT(*) FROM devices d WHERE ' . implode(' AND ', $deviceWhere) . ') AS devices,
+                    (SELECT COUNT(*) FROM compliance_events e INNER JOIN devices d ON d.id = e.device_id WHERE ' . implode(' AND ', $eventWhere) . ') AS open_events,
+                    (SELECT COUNT(*) FROM measurements m INNER JOIN devices d ON d.id = m.device_id WHERE ' . implode(' AND ', $measurementWhere) . ') AS measurements,
+                    (SELECT COALESCE(SUM(t.rejected_count), 0) FROM device_transmissions t INNER JOIN devices d ON d.id = t.device_id WHERE ' . implode(' AND ', $transmissionWhere) . ') AS rejections',
         );
-        $statement->execute(['from' => $from, 'from2' => $from]);
+        $statement->execute($params);
 
         return $statement->fetch();
     }

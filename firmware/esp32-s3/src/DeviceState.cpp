@@ -6,11 +6,28 @@ namespace {
 constexpr char ProvisioningNamespace[] = "haccp-prov";
 constexpr char RuntimeNamespace[] = "haccp-run";
 constexpr char QueueNamespace[] = "haccp-queue";
+constexpr char OperationalNamespace[] = "haccp-oper";
 
 struct PersistedRuntime {
     uint32_t magic = 0x48414352;
-    uint16_t version = 1;
+    uint16_t version = 2;
     RuntimeConfig config{};
+};
+
+struct LegacyRuntimeConfigV1 {
+    uint32_t configVersion = 0;
+    uint32_t measurementIntervalSeconds = 300;
+    uint32_t uploadIntervalSeconds = 21600;
+    uint16_t maxBatchSize = 64;
+    bool alarmEnabled = false;
+    float temperatureMinC = NAN;
+    float temperatureMaxC = NAN;
+};
+
+struct PersistedRuntimeV1 {
+    uint32_t magic = 0x48414352;
+    uint16_t version = 1;
+    LegacyRuntimeConfigV1 config{};
 };
 }
 
@@ -76,15 +93,38 @@ bool DeviceState::loadRuntime(RuntimeConfig &config)
         return false;
     }
     PersistedRuntime stored;
-    const bool loaded = preferences.getBytesLength("config") == sizeof(stored)
+    bool loaded = false;
+    bool migrated = false;
+    const size_t storedLength = preferences.getBytesLength("config");
+    if (storedLength == sizeof(stored)
         && preferences.getBytes("config", &stored, sizeof(stored)) == sizeof(stored)
-        && stored.magic == 0x48414352 && stored.version == 1;
+        && stored.magic == 0x48414352 && stored.version == 2) {
+        config = stored.config;
+        loaded = true;
+    } else if (storedLength == sizeof(PersistedRuntimeV1)) {
+        PersistedRuntimeV1 legacy;
+        if (preferences.getBytes("config", &legacy, sizeof(legacy)) == sizeof(legacy)
+            && legacy.magic == 0x48414352 && legacy.version == 1) {
+            config.configVersion = legacy.config.configVersion;
+            config.defaultMeasurementIntervalSeconds = legacy.config.measurementIntervalSeconds;
+            config.measurementIntervalSeconds = legacy.config.measurementIntervalSeconds;
+            config.uploadIntervalSeconds = legacy.config.uploadIntervalSeconds;
+            config.maxBatchSize = legacy.config.maxBatchSize;
+            config.alarmEnabled = legacy.config.alarmEnabled;
+            config.temperatureMinC = legacy.config.temperatureMinC;
+            config.temperatureMaxC = legacy.config.temperatureMaxC;
+            loaded = true;
+            migrated = true;
+        }
+    }
     preferences.end();
     if (!loaded) {
         return false;
     }
-    config = stored.config;
     config.maxBatchSize = constrain(config.maxBatchSize, static_cast<uint16_t>(1), static_cast<uint16_t>(QueueCapacity));
+    if (migrated) {
+        saveRuntime(config);
+    }
     return config.configVersion > 0;
 }
 
@@ -99,6 +139,212 @@ bool DeviceState::saveRuntime(const RuntimeConfig &config)
     const bool saved = preferences.putBytes("config", &stored, sizeof(stored)) == sizeof(stored);
     preferences.end();
     return saved;
+}
+
+bool DeviceState::loadOperational(OperationalState &state)
+{
+    ensureOperationalLoaded();
+    state = operational_;
+    return true;
+}
+
+const OperationalState &DeviceState::operational()
+{
+    ensureOperationalLoaded();
+    return operational_;
+}
+
+void DeviceState::ensureOperationalLoaded()
+{
+    if (operationalLoaded_) {
+        return;
+    }
+    Preferences preferences;
+    if (preferences.begin(OperationalNamespace, true)) {
+        OperationalState stored;
+        if (preferences.getBytesLength("state") == sizeof(stored)
+            && preferences.getBytes("state", &stored, sizeof(stored)) == sizeof(stored)
+            && stored.magic == operational_.magic && stored.version == operational_.version) {
+            operational_ = stored;
+        }
+        preferences.end();
+    }
+    operationalLoaded_ = true;
+}
+
+bool DeviceState::saveOperational()
+{
+    ensureOperationalLoaded();
+    Preferences preferences;
+    if (!preferences.begin(OperationalNamespace, false)) {
+        return false;
+    }
+    const bool saved = preferences.putBytes("state", &operational_, sizeof(operational_)) == sizeof(operational_);
+    preferences.end();
+    return saved;
+}
+
+void DeviceState::recordSample(int64_t epoch)
+{
+    ensureOperationalLoaded();
+    operational_.lastSampleAt = epoch;
+    saveOperational();
+}
+
+void DeviceState::recordTransmissionSuccess(int64_t epoch)
+{
+    ensureOperationalLoaded();
+    operational_.lastSuccessfulTransmissionAt = epoch;
+    operational_.nextNetworkAttemptAt = 0;
+    operational_.retryStep = 0;
+    saveOperational();
+}
+
+void DeviceState::recordConfigCheck(int64_t epoch)
+{
+    ensureOperationalLoaded();
+    operational_.lastConfigCheckAt = epoch;
+    saveOperational();
+}
+
+void DeviceState::recordWifiSuccess()
+{
+    ensureOperationalLoaded();
+    operational_.consecutiveWifiFailures = 0;
+    saveOperational();
+}
+
+void DeviceState::recordWifiFailure()
+{
+    ensureOperationalLoaded();
+    ++operational_.wifiFailuresSinceReport;
+    ++operational_.consecutiveWifiFailures;
+    operational_.maxConsecutiveWifiFailures = max(
+        operational_.maxConsecutiveWifiFailures,
+        operational_.consecutiveWifiFailures
+    );
+    operational_.diagnosticFlags |= DiagnosticWifiConnectFailed;
+    saveOperational();
+}
+
+void DeviceState::recordTransportFailure()
+{
+    ensureOperationalLoaded();
+    ++operational_.uploadFailuresSinceReport;
+    operational_.diagnosticFlags |= DiagnosticTransportFailed;
+    saveOperational();
+}
+
+void DeviceState::recordClockSyncFailure()
+{
+    ensureOperationalLoaded();
+    operational_.diagnosticFlags |= DiagnosticClockSyncFailed;
+    saveOperational();
+}
+
+void DeviceState::recordSensorUnavailable()
+{
+    ensureOperationalLoaded();
+    operational_.diagnosticFlags |= DiagnosticSensorUnavailable;
+    saveOperational();
+}
+
+void DeviceState::recordQueueFull()
+{
+    ensureOperationalLoaded();
+    operational_.diagnosticFlags |= DiagnosticQueueFull;
+    saveOperational();
+}
+
+void DeviceState::recordAckIncomplete()
+{
+    ensureOperationalLoaded();
+    operational_.diagnosticFlags |= DiagnosticAckIncomplete;
+    saveOperational();
+}
+
+void DeviceState::recordConfigApplied(uint32_t version)
+{
+    ensureOperationalLoaded();
+    operational_.appliedConfigVersion = version;
+    operational_.configStatus = ConfigApplyStatus::Applied;
+    operational_.diagnosticFlags &= ~DiagnosticConfigRejected;
+    saveOperational();
+}
+
+void DeviceState::recordConfigRejected()
+{
+    ensureOperationalLoaded();
+    operational_.configStatus = ConfigApplyStatus::Rejected;
+    operational_.diagnosticFlags |= DiagnosticConfigRejected;
+    saveOperational();
+}
+
+void DeviceState::recordSleepMode(SleepMode mode)
+{
+    ensureOperationalLoaded();
+    operational_.lastSleepMode = mode;
+    saveOperational();
+}
+
+void DeviceState::recordSleepFallback(SleepMode fallbackMode)
+{
+    ensureOperationalLoaded();
+    operational_.lastSleepMode = fallbackMode;
+    ++operational_.sleepFallbacksSinceReport;
+    operational_.diagnosticFlags |= DiagnosticSleepFallback;
+    saveOperational();
+}
+
+void DeviceState::scheduleNetworkRetry(int64_t now, uint32_t delaySeconds)
+{
+    ensureOperationalLoaded();
+    operational_.nextNetworkAttemptAt = now + delaySeconds;
+    if (operational_.retryStep < 4) {
+        ++operational_.retryStep;
+    }
+    saveOperational();
+}
+
+void DeviceState::clearNetworkRetry()
+{
+    ensureOperationalLoaded();
+    operational_.nextNetworkAttemptAt = 0;
+    operational_.retryStep = 0;
+    saveOperational();
+}
+
+void DeviceState::markTelemetryDelivered()
+{
+    ensureOperationalLoaded();
+    operational_.wifiFailuresSinceReport = 0;
+    operational_.uploadFailuresSinceReport = 0;
+    operational_.maxConsecutiveWifiFailures = 0;
+    operational_.sleepFallbacksSinceReport = 0;
+    operational_.diagnosticFlags = 0;
+    saveOperational();
+}
+
+size_t DeviceState::diagnosticCodes(const char **codes, size_t capacity) const
+{
+    const_cast<DeviceState *>(this)->ensureOperationalLoaded();
+    const struct { uint32_t flag; const char *code; } mappings[] = {
+        {DiagnosticWifiConnectFailed, "WIFI_CONNECT_FAILED"},
+        {DiagnosticTransportFailed, "HTTPS_TRANSPORT_FAILED"},
+        {DiagnosticClockSyncFailed, "CLOCK_SYNC_FAILED"},
+        {DiagnosticSensorUnavailable, "SENSOR_UNAVAILABLE"},
+        {DiagnosticQueueFull, "OFFLINE_QUEUE_FULL"},
+        {DiagnosticConfigRejected, "CONFIG_REJECTED"},
+        {DiagnosticAckIncomplete, "ACK_INCOMPLETE"},
+        {DiagnosticSleepFallback, "DEEP_SLEEP_FALLBACK"},
+    };
+    size_t count = 0;
+    for (const auto &mapping : mappings) {
+        if ((operational_.diagnosticFlags & mapping.flag) != 0 && count < capacity) {
+            codes[count++] = mapping.code;
+        }
+    }
+    return count;
 }
 
 void DeviceState::loadQueue()
@@ -203,7 +449,7 @@ uint32_t DeviceState::incrementBootCount()
 
 void DeviceState::factoryReset()
 {
-    for (const char *name : {ProvisioningNamespace, RuntimeNamespace, QueueNamespace}) {
+    for (const char *name : {ProvisioningNamespace, RuntimeNamespace, QueueNamespace, OperationalNamespace}) {
         Preferences preferences;
         if (preferences.begin(name, false)) {
             preferences.clear();
@@ -212,4 +458,6 @@ void DeviceState::factoryReset()
     }
     queue_ = QueueState{};
     queueLoaded_ = true;
+    operational_ = OperationalState{};
+    operationalLoaded_ = true;
 }

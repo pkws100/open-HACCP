@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include <esp_system.h>
 #include <time.h>
 
 #include "FirmwareConfig.h"
@@ -12,6 +13,15 @@ namespace {
 bool validResponse(int status)
 {
     return status >= 200 && status < 300;
+}
+
+const char *configStatusName(ConfigApplyStatus status)
+{
+    switch (status) {
+        case ConfigApplyStatus::Applied: return "applied";
+        case ConfigApplyStatus::Rejected: return "rejected";
+        default: return "default";
+    }
 }
 }
 
@@ -79,20 +89,7 @@ bool HaccpClient::fetchConfig(const ProvisioningConfig &provisioning, RuntimeCon
     }
 
     RuntimeConfig candidate = runtime;
-    candidate.configVersion = document["config_version"].as<uint32_t>();
-    candidate.measurementIntervalSeconds = document["measurement"]["interval_seconds"] | 300U;
-    candidate.uploadIntervalSeconds = document["upload"]["interval_seconds"] | 21600U;
-    const uint16_t serverBatchSize = document["upload"]["max_batch_size"] | 64U;
-    candidate.maxBatchSize = min(serverBatchSize, static_cast<uint16_t>(DeviceState::QueueCapacity));
-    candidate.alarmEnabled = document["alarm"]["enabled"] | false;
-    candidate.temperatureMinC = document["alarm"]["temperature_min_c"].is<float>()
-        ? document["alarm"]["temperature_min_c"].as<float>() : NAN;
-    candidate.temperatureMaxC = document["alarm"]["temperature_max_c"].is<float>()
-        ? document["alarm"]["temperature_max_c"].as<float>() : NAN;
-    if (candidate.measurementIntervalSeconds < 1 || candidate.uploadIntervalSeconds < 1 || candidate.maxBatchSize < 1
-        || (candidate.alarmEnabled && (isnan(candidate.temperatureMinC) || isnan(candidate.temperatureMaxC)
-            || candidate.temperatureMinC >= candidate.temperatureMaxC))) {
-        error = "Configuration values are invalid.";
+    if (!parseConfiguration(document.as<JsonVariantConst>(), provisioning, runtime, candidate, error)) {
         return false;
     }
     runtime = candidate;
@@ -103,6 +100,9 @@ bool HaccpClient::sendHeartbeat(
     const ProvisioningConfig &provisioning,
     const RuntimeConfig &runtime,
     const DeviceDiagnostics &diagnostics,
+    RuntimeConfig &receivedConfig,
+    bool &configurationValid,
+    String &configurationError,
     String &error
 )
 {
@@ -114,6 +114,7 @@ bool HaccpClient::sendHeartbeat(
     document["rssi_dbm"] = diagnostics.rssiDbm;
     document["wifi_connect_ms"] = diagnostics.wifiConnectMs;
     document["boot_count"] = diagnostics.bootCount;
+    addDeviceStatus(document, diagnostics);
     String body;
     serializeJson(document, body);
 
@@ -126,10 +127,29 @@ bool HaccpClient::sendHeartbeat(
         return false;
     }
     JsonDocument responseDocument;
-    return deserializeJson(responseDocument, response) == DeserializationError::Ok
-        && responseDocument["success"].as<bool>()
-        && responseDocument["protocol_version"].as<int>() == 1
-        && responseDocument["config_version"].as<uint32_t>() >= runtime.configVersion;
+    if (deserializeJson(responseDocument, response) != DeserializationError::Ok
+        || !responseDocument["success"].as<bool>()
+        || responseDocument["protocol_version"].as<int>() != 1
+        || !responseDocument["config_version"].is<uint32_t>()) {
+        error = "Heartbeat response is invalid.";
+        return false;
+    }
+    configurationValid = false;
+    configurationError = "Configuration is missing from heartbeat response.";
+    if (!responseDocument["configuration"].isNull()) {
+        RuntimeConfig candidate = runtime;
+        configurationValid = parseConfiguration(
+            responseDocument["configuration"].as<JsonVariantConst>(),
+            provisioning,
+            runtime,
+            candidate,
+            configurationError
+        );
+        if (configurationValid) {
+            receivedConfig = candidate;
+        }
+    }
+    return true;
 }
 
 bool HaccpClient::uploadMeasurements(
@@ -141,6 +161,9 @@ bool HaccpClient::uploadMeasurements(
     uint64_t *acknowledgedSequences,
     size_t &acknowledgedCount,
     uint32_t &reportedConfigVersion,
+    RuntimeConfig &receivedConfig,
+    bool &configurationValid,
+    String &configurationError,
     String &error
 )
 {
@@ -166,6 +189,7 @@ bool HaccpClient::uploadMeasurements(
     diagnosticObject["rssi_dbm"] = diagnostics.rssiDbm;
     diagnosticObject["wifi_connect_ms"] = diagnostics.wifiConnectMs;
     diagnosticObject["boot_count"] = diagnostics.bootCount;
+    addDeviceStatus(document, diagnostics);
     JsonArray measurements = document["measurements"].to<JsonArray>();
     for (size_t index = 0; index < itemCount; ++index) {
         JsonObject measurement = measurements.add<JsonObject>();
@@ -206,7 +230,131 @@ bool HaccpClient::uploadMeasurements(
             acknowledgedSequences[acknowledgedCount++] = sequence;
         }
     }
+    configurationValid = false;
+    configurationError = "Configuration is missing from measurement response.";
+    if (!responseDocument["configuration"].isNull()) {
+        RuntimeConfig candidate = runtime;
+        configurationValid = parseConfiguration(
+            responseDocument["configuration"].as<JsonVariantConst>(),
+            provisioning,
+            runtime,
+            candidate,
+            configurationError
+        );
+        if (configurationValid) {
+            receivedConfig = candidate;
+        }
+    }
     return true;
+}
+
+bool HaccpClient::parseConfiguration(
+    JsonVariantConst document,
+    const ProvisioningConfig &provisioning,
+    const RuntimeConfig &current,
+    RuntimeConfig &candidate,
+    String &error
+)
+{
+    if (document["protocol_version"].as<int>() != 1 || !document["config_version"].is<uint32_t>()
+        || !document["measurement"].is<JsonObjectConst>() || !document["measurement_points"].is<JsonArrayConst>()
+        || !document["upload"].is<JsonObjectConst>() || !document["alarm"].is<JsonObjectConst>()) {
+        error = "Configuration structure is invalid.";
+        return false;
+    }
+
+    candidate = current;
+    candidate.configVersion = document["config_version"].as<uint32_t>();
+    candidate.defaultMeasurementIntervalSeconds = document["measurement"]["interval_seconds"] | 0U;
+    candidate.measurementIntervalSeconds = candidate.defaultMeasurementIntervalSeconds;
+    bool configuredPointFound = false;
+    for (JsonObjectConst point : document["measurement_points"].as<JsonArrayConst>()) {
+        const char *code = point["code"] | "";
+        const uint32_t interval = point["interval_seconds"] | 0U;
+        if (interval < 30 || interval > 86400) {
+            error = "A measurement point interval is invalid.";
+            return false;
+        }
+        if (provisioning.measurementPoint == code) {
+            candidate.measurementIntervalSeconds = interval;
+            configuredPointFound = true;
+        }
+    }
+    candidate.uploadIntervalSeconds = document["upload"]["interval_seconds"] | 0U;
+    const uint32_t serverBatchSize = document["upload"]["max_batch_size"] | 0U;
+    candidate.maxBatchSize = static_cast<uint16_t>(min(
+        serverBatchSize,
+        static_cast<uint32_t>(DeviceState::QueueCapacity)
+    ));
+    candidate.alarmEnabled = document["alarm"]["enabled"] | false;
+    candidate.temperatureMinC = document["alarm"]["temperature_min_c"].is<float>()
+        ? document["alarm"]["temperature_min_c"].as<float>() : NAN;
+    candidate.temperatureMaxC = document["alarm"]["temperature_max_c"].is<float>()
+        ? document["alarm"]["temperature_max_c"].as<float>() : NAN;
+
+    if (candidate.defaultMeasurementIntervalSeconds < 30 || candidate.defaultMeasurementIntervalSeconds > 86400
+        || candidate.uploadIntervalSeconds < 60 || candidate.uploadIntervalSeconds > 604800
+        || serverBatchSize < 1 || serverBatchSize > 500 || candidate.maxBatchSize < 1
+        || !configuredPointFound
+        || (candidate.alarmEnabled && (isnan(candidate.temperatureMinC) || isnan(candidate.temperatureMaxC)
+            || candidate.temperatureMinC < -100 || candidate.temperatureMaxC > 150
+            || candidate.temperatureMinC >= candidate.temperatureMaxC))) {
+        error = configuredPointFound
+            ? "Configuration values are invalid."
+            : "The provisioned measurement point is not active in this configuration.";
+        return false;
+    }
+    return true;
+}
+
+void HaccpClient::addDeviceStatus(JsonDocument &document, const DeviceDiagnostics &diagnostics)
+{
+    JsonObject info = document["device_info"].to<JsonObject>();
+    info["board_model"] = OPEN_HACCP_BOARD_MODEL;
+    info["chip_model"] = ESP.getChipModel();
+    info["chip_revision"] = ESP.getChipRevision();
+    info["cpu_cores"] = ESP.getChipCores();
+    info["flash_bytes"] = ESP.getFlashChipSize();
+    info["psram_bytes"] = ESP.getPsramSize();
+    info["heap_free_bytes"] = ESP.getFreeHeap();
+    info["sensor_model"] = OPEN_HACCP_SENSOR_MODEL;
+    info["sensor_status"] = diagnostics.sensorReady ? "ready" : "unavailable";
+    info["queue_capacity"] = DeviceState::QueueCapacity;
+    JsonArray capabilities = info["capabilities"].to<JsonArray>();
+    for (const char *capability : {"temperature", "humidity", "battery", "wifi_rssi", "deep_sleep", "remote_config", "provisioning_ap"}) {
+        capabilities.add(capability);
+    }
+
+    JsonObject status = document["operational_status"].to<JsonObject>();
+    status["provisioned"] = true;
+    status["queue_depth"] = diagnostics.queueDepth;
+    status["awake_ms"] = diagnostics.awakeMs;
+    status["wake_reason"] = diagnostics.wakeReason;
+    status["reset_reason"] = diagnostics.resetReason;
+    status["requested_sleep_mode"] = diagnostics.requestedSleepMode;
+    status["wifi_failures_since_report"] = diagnostics.operational.wifiFailuresSinceReport;
+    status["upload_failures_since_report"] = diagnostics.operational.uploadFailuresSinceReport;
+    status["max_consecutive_wifi_failures"] = diagnostics.operational.maxConsecutiveWifiFailures;
+    status["sleep_fallbacks_since_report"] = diagnostics.operational.sleepFallbacksSinceReport;
+
+    JsonObject configAck = document["config_ack"].to<JsonObject>();
+    configAck["applied_version"] = diagnostics.operational.appliedConfigVersion;
+    configAck["status"] = configStatusName(diagnostics.operational.configStatus);
+
+    const bool batch = document["diagnostics"].is<JsonObject>();
+    JsonArray errors = batch
+        ? document["diagnostics"]["errors"].to<JsonArray>()
+        : document["errors"].to<JsonArray>();
+    for (size_t index = 0; index < diagnostics.errorCount; ++index) {
+        errors.add(diagnostics.errors[index]);
+    }
+    if (diagnostics.errorCount == 0) {
+        if (batch) {
+            document["diagnostics"].remove("errors");
+        } else {
+            document.remove("errors");
+        }
+    }
 }
 
 String HaccpClient::utcTimestamp(int64_t epoch)

@@ -1,6 +1,18 @@
 # ESP32-S3 firmware implementation handoff
 
-This is the implementation brief for the next Codex task. The existing code in `firmware/esp32-s3` is a buildable, awake onboarding/transport reference. The next task must turn it into power-managed product firmware without weakening the provisioning, TLS, durable-storage, idempotency, or acknowledgement rules already defined in [`FIRMWARE_CONTRACT.md`](FIRMWARE_CONTRACT.md).
+This document is now the implementation and hardware-release handoff for `firmware/esp32-s3`. Firmware `0.3.0-power-managed` implements the first bounded Wake–Measure–Persist–Transmit–Sleep cycle without weakening the provisioning, TLS, idempotency or exact-acknowledgement rules in [`FIRMWARE_CONTRACT.md`](FIRMWARE_CONTRACT.md). It compiles both the normal Deep-Sleep profile and a forced Light-Sleep fallback profile.
+
+Implemented in software:
+
+- persisted sample, successful-transmission, config-check and retry deadlines;
+- timer Deep Sleep with Light-Sleep and bounded restart fallback;
+- two bounded WLAN attempts per wake plus persisted 1/5/15/30/60-minute jittered backoff;
+- optional board/chip/sensor/capacity, queue, wake/reset and accumulated failure telemetry;
+- exact batch ACK deletion followed by independent piggyback-config validation;
+- explicit config GET fallback, durable `config_ack`, and a same-wake confirmation heartbeat for the version actually activated;
+- dashboard controls for the default/per-provisioned-point sampling interval and one, three, five or other supported transmissions per day.
+
+Not yet evidenced as a hardware production release: measured current and wake duration, calibrated battery divider/SHT45, destructive power-loss recovery, larger queue/offline-horizon sizing, encrypted/atomic storage, Secure Boot/Flash Encryption, OTA, final PCB/enclosure/reset design and manufacturing secret injection.
 
 ## Target and non-goals
 
@@ -37,7 +49,7 @@ Sampling and persistence happen before a normal network attempt. A cold boot tha
 
 ## Durable state model
 
-Use CRC/versioned records and an atomic A/B or journaled commit strategy. A reset at any individual write must recover either the previous complete state or the next complete state, never a mixture.
+The reference uses versioned NVS records separated by provisioning, runtime config, operational scheduler/counters and queue namespaces. A production storage revision must add CRC plus an atomic A/B or journaled commit strategy and prove by destructive testing that a reset at any individual write recovers either the previous complete state or the next complete state, never a mixture.
 
 Persist these domains separately so runtime configuration cannot overwrite provisioning credentials:
 
@@ -77,7 +89,9 @@ Each pending measurement contains and uploads:
 - the logical measurement point and its independent sequence;
 - the original UTC `measured_at`.
 
-Connection diagnostics contain the latest battery voltage, Wi-Fi `rssi_dbm`, connection duration, and boot count. RSSI belongs to the batch/heartbeat diagnostics because it only exists while WLAN is active; the backend stores it with the transmission and exposes it on the dashboard. Firmware/hardware versions are sent on every connection. Numeric range checks happen before queue insertion and again before serialization. Firmware may persist up to 20 stable, secret-free diagnostic codes and send them as batch `diagnostics.errors` or heartbeat `errors`; successful delivery clears only codes included in that acknowledged request.
+Connection diagnostics contain the latest battery voltage, Wi-Fi `rssi_dbm`, connection duration, and boot count. RSSI belongs to the batch/heartbeat diagnostics because it only exists while WLAN is active; the backend stores it with the transmission and exposes it on the dashboard. Firmware/hardware versions are sent on every connection. Numeric range checks happen before queue insertion and again before serialization. Firmware persists stable, secret-free diagnostic flags and sends them as batch `diagnostics.errors` or heartbeat `errors`; successful delivery clears only codes included in that accepted request.
+
+The optional `device_info` block reports actual `ESP` runtime values for board/chip revision, cores, flash, PSRAM and free heap together with the SHT45 status, queue capacity and capabilities. `operational_status` reports provisioning, queue occupancy, awake time, wake/reset reason, requested sleep mode and failures since the previous successful report. `config_ack` distinguishes the server's latest version from the version durably applied by the device. These blocks never contain MAC, SSID, credentials or free-form failure text.
 
 ## Configuration uptake on upload
 
@@ -110,12 +124,12 @@ Configuration is operational and non-secret. It can change cadence and alarms, b
 - No insecure TLS fallback, leaf-certificate pin as the sole trust strategy, credential in URL, or secret serial output.
 - Production release requires Secure Boot, Flash Encryption, encrypted NVS, protected factory-reset behavior, and a documented trust-anchor/OTA rotation process.
 
-## Required tests for the next task
+## Remaining production-hardware tests
 
-1. Clean and incremental PlatformIO builds with no checked-in secret header.
+1. Repeat clean and incremental PlatformIO builds in CI with no checked-in secret header; both normal and forced-fallback profiles currently compile locally.
 2. First boot SoftAP, captive portal, invalid input, failed WLAN/TLS/auth verification, successful verify-before-save, reboot, and destructive reset.
 3. Timer wake samples temperature/humidity/battery before network, persists it, and returns to Deep Sleep.
-4. Two logical points with different intervals wake on the earliest due deadline and retain independent sequences.
+4. If the final PCB supports multiple physical sensors, add independent point schedulers/sequences and verify that two points with different intervals wake on the earliest due deadline. The current SHT45 profile supports its one provisioned point and rejects a config that removes it.
 5. Power loss at each queue/config/ACK commit boundary recovers without sequence reuse or record loss.
 6. Offline sampling, queue-pressure upload, retry persistence, and full-queue no-overwrite behavior.
 7. Accepted, duplicate, partial rejection, missing ACK, conflict, invalid response, 401, 413, 429, 5xx, DNS, TLS, and timeout handling.
@@ -133,6 +147,6 @@ Configuration is operational and non-secret. It can change cadence and alarms, b
 - Stable firmware diagnostic codes can become backend deviation events without a protocol-version change.
 - Exact ACK correlation and sequence idempotency tests pass against a disposable local MariaDB stack and the VPS test deployment.
 - Deep Sleep timing and power measurements are documented for the selected board, sensor wiring, and calibrated battery divider.
-- Documentation is updated from “awake reference” to the implemented behavior only after hardware and integration evidence exists.
+- Documentation clearly separates software-implemented behavior from hardware-measured and production-certified evidence.
 
-Firmware handoff ready: **YES**. This means the backend and machine-readable contract are ready for the next firmware implementation task; it is not a statement that the current awake reference already implements Deep Sleep or is production-certified.
+Firmware handoff ready: **YES**. The first power-managed software implementation, backend and machine-readable contract agree. Hardware release ready remains **NO** until the remaining bench, calibration, power-loss, storage-encryption and security gates above have recorded evidence.

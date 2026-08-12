@@ -91,12 +91,18 @@ final readonly class DeviceRepository
         int $rssiDbm,
         ?string $remoteIp,
         string $now,
+        ?array $deviceInfo = null,
+        ?array $configAcknowledgement = null,
     ): void {
         $statement = $this->pdo->prepare(
             'UPDATE devices
              SET last_seen_at = :last_seen_at, last_ip = :last_ip, last_rssi_dbm = :last_rssi_dbm,
                  last_battery_mv = :last_battery_mv, firmware_version = :firmware_version,
-                 hardware_revision = :hardware_revision, updated_at = :updated_at
+                 hardware_revision = :hardware_revision,
+                 device_info_json = COALESCE(:device_info_json, device_info_json),
+                 last_applied_config_version = COALESCE(:last_applied_config_version, last_applied_config_version),
+                 last_config_status = COALESCE(:last_config_status, last_config_status),
+                 updated_at = :updated_at
              WHERE id = :id',
         );
         $statement->execute([
@@ -106,6 +112,9 @@ final readonly class DeviceRepository
             'last_battery_mv' => $batteryMv,
             'firmware_version' => $firmwareVersion,
             'hardware_revision' => $hardwareRevision,
+            'device_info_json' => $deviceInfo === null ? null : json_encode($deviceInfo, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            'last_applied_config_version' => $configAcknowledgement['applied_version'] ?? null,
+            'last_config_status' => $configAcknowledgement['status'] ?? null,
             'updated_at' => $now,
             'id' => $deviceId,
         ]);

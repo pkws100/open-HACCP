@@ -18,11 +18,15 @@ final readonly class TransmissionRepository
         $statement = $this->pdo->prepare(
             'INSERT INTO device_transmissions
              (device_id, transmission_type, request_id, batch_id, received_at, firmware_version,
-              hardware_revision, battery_mv, rssi_dbm, wifi_connect_ms, boot_count, measurement_count,
+              hardware_revision, device_info_json, operational_status_json, applied_config_version,
+              config_apply_status, queue_depth, wifi_failures_since_report, upload_failures_since_report,
+              sleep_fallbacks_since_report, battery_mv, rssi_dbm, wifi_connect_ms, boot_count, measurement_count,
               accepted_count, duplicate_count, rejected_count, diagnostic_errors_json, remote_ip, created_at)
              VALUES
              (:device_id, :transmission_type, :request_id, :batch_id, :received_at, :firmware_version,
-              :hardware_revision, :battery_mv, :rssi_dbm, :wifi_connect_ms, :boot_count, :measurement_count,
+              :hardware_revision, :device_info_json, :operational_status_json, :applied_config_version,
+              :config_apply_status, :queue_depth, :wifi_failures_since_report, :upload_failures_since_report,
+              :sleep_fallbacks_since_report, :battery_mv, :rssi_dbm, :wifi_connect_ms, :boot_count, :measurement_count,
               :accepted_count, :duplicate_count, :rejected_count, :diagnostic_errors_json, :remote_ip, :created_at)',
         );
         $statement->execute($data);

@@ -11,9 +11,14 @@ function palette() {
 function setup(canvas) {
   const ratio = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
   const width = Math.max(240, canvas.clientWidth || 600);
-  const height = Number(canvas.getAttribute('height') || 260);
-  canvas.width = Math.round(width * ratio);
-  canvas.height = Math.round(height * ratio);
+  const configuredHeight = Number(canvas.dataset.chartHeight || canvas.getAttribute('height') || 260);
+  const height = Number.isFinite(configuredHeight) && configuredHeight > 0 ? configuredHeight : 260;
+  canvas.dataset.chartHeight = String(height);
+  canvas.style.height = `${height}px`;
+  const pixelWidth = Math.round(width * ratio);
+  const pixelHeight = Math.round(height * ratio);
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
   const context = canvas.getContext('2d');
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
   context.clearRect(0, 0, width, height);
@@ -99,7 +104,7 @@ export function observeChartResize(canvases, render) {
     window.cancelAnimationFrame(frame);
     frame = window.requestAnimationFrame(render);
   });
-  canvases.forEach((canvas) => observer.observe(canvas));
+  new Set(canvases.map((canvas) => canvas.parentElement || canvas)).forEach((element) => observer.observe(element));
   return observer;
 }
 

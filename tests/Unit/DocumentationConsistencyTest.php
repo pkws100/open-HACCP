@@ -37,6 +37,9 @@ final class DocumentationConsistencyTest extends TestCase
         self::assertArrayHasKey('/api/v1/dashboard/establishment', $openApi['paths']);
         self::assertArrayHasKey('errors', $schema['$defs']['diagnostics']['properties']);
         self::assertSame(20, $schema['$defs']['diagnostics']['properties']['errors']['maxItems']);
+        self::assertArrayHasKey('deviceInfo', $schema['$defs']);
+        self::assertArrayHasKey('operationalStatus', $schema['$defs']);
+        self::assertArrayHasKey('configAcknowledgement', $schema['$defs']);
         self::assertSame('https://haccp.pow24.org', $openApi['servers'][0]['url']);
         self::assertStringContainsString('Only then mark that specific local record acknowledged', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));
         self::assertStringContainsString('establish HTTPS and verify CA chain + hostname', (string) file_get_contents($root . '/docs/FIRMWARE_CONTRACT.md'));

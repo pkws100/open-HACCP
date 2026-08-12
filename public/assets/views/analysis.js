@@ -1,5 +1,5 @@
 import { api } from '../api.js?v=20260810-1';
-import { accessibleTable, barChart, lineChart, chartColor, observeChartResize } from '../charts.js?v=20260810-1';
+import { accessibleTable, barChart, lineChart, chartColor, observeChartResize } from '../charts.js?v=20260812-1';
 import { escapeHtml, formatNumber, metric } from '../format.js?v=20260810-1';
 
 const state = { days: 30, device: '', point: '', data: null, initialized: false };

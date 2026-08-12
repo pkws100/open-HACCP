@@ -112,10 +112,39 @@ final class ApiIntegrationTest extends IntegrationTestCase
             'rssi_dbm' => -61,
             'wifi_connect_ms' => 2050,
             'boot_count' => 77,
+            'errors' => ['WIFI_CONNECT_FAILED'],
+            'device_info' => [
+                'board_model' => 'ESP32-S3-DevKitC-1',
+                'chip_model' => 'ESP32-S3',
+                'chip_revision' => 0,
+                'cpu_cores' => 2,
+                'flash_bytes' => 8388608,
+                'psram_bytes' => 8388608,
+                'heap_free_bytes' => 240000,
+                'sensor_model' => 'SHT45',
+                'sensor_status' => 'ready',
+                'queue_capacity' => 64,
+                'capabilities' => ['temperature', 'humidity', 'deep_sleep', 'remote_config'],
+            ],
+            'operational_status' => [
+                'provisioned' => true,
+                'queue_depth' => 12,
+                'awake_ms' => 3200,
+                'wake_reason' => 'timer',
+                'reset_reason' => 'deep_sleep',
+                'requested_sleep_mode' => 'deep_sleep',
+                'wifi_failures_since_report' => 5,
+                'upload_failures_since_report' => 2,
+                'max_consecutive_wifi_failures' => 5,
+                'sleep_fallbacks_since_report' => 1,
+            ],
+            'config_ack' => ['applied_version' => 1, 'status' => 'applied'],
         ];
         $response = $this->request('POST', '/api/v1/device/heartbeat', $heartbeat);
         $row = $this->pdo->query(
-            "SELECT last_seen_at, last_rssi_dbm, last_battery_mv, firmware_version, hardware_revision FROM devices WHERE device_uid = 'haccp-test-0001'",
+            "SELECT last_seen_at, last_rssi_dbm, last_battery_mv, firmware_version, hardware_revision,
+                    device_info_json, last_applied_config_version, last_config_status
+             FROM devices WHERE device_uid = 'haccp-test-0001'",
         )->fetch();
 
         self::assertSame(200, $response->getStatusCode());
@@ -124,9 +153,26 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(6001, (int) $row['last_battery_mv']);
         self::assertSame('0.2.0', $row['firmware_version']);
         self::assertSame('prototype-b', $row['hardware_revision']);
+        self::assertSame('ESP32-S3-DevKitC-1', json_decode((string) $row['device_info_json'], true, 512, JSON_THROW_ON_ERROR)['board_model']);
+        self::assertSame(1, (int) $row['last_applied_config_version']);
+        self::assertSame('applied', $row['last_config_status']);
+        $transmission = $this->pdo->query(
+            'SELECT queue_depth, wifi_failures_since_report, upload_failures_since_report, sleep_fallbacks_since_report
+             FROM device_transmissions ORDER BY id DESC LIMIT 1',
+        )->fetch();
+        self::assertSame(12, (int) $transmission['queue_depth']);
+        self::assertSame(5, (int) $transmission['wifi_failures_since_report']);
+        self::assertSame(2, (int) $transmission['upload_failures_since_report']);
+        self::assertSame(1, (int) $transmission['sleep_fallbacks_since_report']);
         $json = $this->json($response);
         self::assertSame($json['config_version'], $json['configuration']['config_version']);
         self::assertSame(300, $json['configuration']['measurement_points'][0]['interval_seconds']);
+
+        $overview = $this->json($this->dashboardRequest('/api/v1/dashboard/overview'));
+        self::assertSame('ESP32-S3-DevKitC-1', $overview['selected_device']['device_info']['board_model']);
+        self::assertTrue($overview['selected_device']['configuration_delivery']['up_to_date']);
+        self::assertSame(12, $overview['diagnostics']['operational_status']['queue_depth']);
+        self::assertSame(['WIFI_CONNECT_FAILED'], $overview['diagnostics']['diagnostic_errors']);
     }
 
     public function testDeviceKeyNeverAppearsInApplicationLogs(): void
@@ -256,6 +302,43 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame(1, $json['settings']['config_version']);
         self::assertSame(300, $json['settings']['schedule']['default_measurement_interval_seconds']);
         self::assertSame('fridge-1', $json['settings']['schedule']['measurement_points'][0]['measurement_point']);
+    }
+
+    public function testAnalysisKpisFollowTheSelectedDeviceAndMeasurementPoint(): void
+    {
+        $this->request('POST', '/api/v1/device/measurements', $this->batch());
+        $provisioned = $this->json($this->dashboardRequest(
+            '/api/v1/dashboard/devices',
+            true,
+            'POST',
+            $this->provisioningPayload(),
+        ));
+        $originalUid = $this->deviceUid;
+        $originalKey = $this->deviceKey;
+        $this->deviceUid = $provisioned['device']['device_uid'];
+        $this->deviceKey = $provisioned['setup_package']['device_key'];
+        $sent = new \DateTimeImmutable('-5 minutes', new \DateTimeZone('UTC'));
+        $this->request('POST', '/api/v1/device/measurements', $this->batch([
+            $this->measurement(1, $sent->modify('-2 minutes'), 'counter-1'),
+            $this->measurement(2, $sent->modify('-1 minute'), 'counter-1'),
+            $this->measurement(3, $sent, 'counter-1'),
+        ], 'second-device-analysis'));
+        $this->deviceUid = $originalUid;
+        $this->deviceKey = $originalKey;
+
+        $fleet = $this->json($this->dashboardRequest('/api/v1/dashboard/analysis?days=30'));
+        $pointId = (int) $this->pdo->query(
+            "SELECT mp.id FROM measurement_points mp INNER JOIN devices d ON d.id = mp.device_id WHERE d.device_uid = 'haccp-test-0001'",
+        )->fetchColumn();
+        $filtered = $this->json($this->dashboardRequest(
+            '/api/v1/dashboard/analysis?days=30&device=' . $originalUid . '&measurement_point_id=' . $pointId,
+        ));
+
+        self::assertSame(2, $fleet['fleet']['devices']);
+        self::assertSame(6, $fleet['fleet']['measurements']);
+        self::assertSame(1, $filtered['fleet']['devices']);
+        self::assertSame(3, $filtered['fleet']['measurements']);
+        self::assertCount(3, $filtered['measurements']);
     }
 
     public function testDashboardDeviceProvisioningRequiresAuthenticationAndReturnsOneTimeSetupPackage(): void

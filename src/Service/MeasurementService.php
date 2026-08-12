@@ -44,6 +44,9 @@ final readonly class MeasurementService
         $this->pdo->beginTransaction();
         try {
             $diagnostics = $batch['diagnostics'];
+            $deviceInfo = $batch['device_info'];
+            $operationalStatus = $batch['operational_status'];
+            $configAcknowledgement = $batch['config_ack'];
             $transmissionId = $this->transmissions->create([
                 'device_id' => $device->id,
                 'transmission_type' => 'measurement_batch',
@@ -52,6 +55,14 @@ final readonly class MeasurementService
                 'received_at' => $receivedAt,
                 'firmware_version' => $batch['firmware_version'],
                 'hardware_revision' => $batch['hardware_revision'],
+                'device_info_json' => $deviceInfo === null ? null : json_encode($deviceInfo, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+                'operational_status_json' => $operationalStatus === null ? null : json_encode($operationalStatus, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+                'applied_config_version' => $configAcknowledgement['applied_version'] ?? null,
+                'config_apply_status' => $configAcknowledgement['status'] ?? null,
+                'queue_depth' => $operationalStatus['queue_depth'] ?? null,
+                'wifi_failures_since_report' => $operationalStatus['wifi_failures_since_report'] ?? null,
+                'upload_failures_since_report' => $operationalStatus['upload_failures_since_report'] ?? null,
+                'sleep_fallbacks_since_report' => $operationalStatus['sleep_fallbacks_since_report'] ?? null,
                 'battery_mv' => $diagnostics['battery_mv'],
                 'rssi_dbm' => $diagnostics['rssi_dbm'],
                 'wifi_connect_ms' => $diagnostics['wifi_connect_ms'],
@@ -73,6 +84,8 @@ final readonly class MeasurementService
                 $diagnostics['rssi_dbm'],
                 $remoteIp,
                 $receivedAt,
+                $deviceInfo,
+                $configAcknowledgement,
             );
 
             $acknowledgements = [];

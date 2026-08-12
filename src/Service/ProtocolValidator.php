@@ -67,6 +67,9 @@ final class ProtocolValidator
             throw new ApiException(422, 'INVALID_DIAGNOSTICS', 'diagnostics must be an object');
         }
         $diagnostics = $this->validateDiagnostics($payload->diagnostics);
+        $deviceInfo = $this->validateDeviceInfo($payload->device_info ?? null);
+        $operationalStatus = $this->validateOperationalStatus($payload->operational_status ?? null);
+        $configAcknowledgement = $this->validateConfigAcknowledgement($payload->config_ack ?? null);
 
         if (!is_array($payload->measurements) || count($payload->measurements) < 1) {
             throw new ApiException(422, 'EMPTY_BATCH', 'measurements must contain at least one item');
@@ -90,6 +93,9 @@ final class ProtocolValidator
             'hardware_revision' => $payload->hardware_revision,
             'sent_at' => $sentAt,
             'diagnostics' => $diagnostics,
+            'device_info' => $deviceInfo,
+            'operational_status' => $operationalStatus,
+            'config_ack' => $configAcknowledgement,
             'measurements' => $payload->measurements,
         ];
     }
@@ -182,6 +188,9 @@ final class ProtocolValidator
             'errors' => $payload->errors ?? [],
         ];
         $telemetry = $this->validateDiagnostics($telemetryObject);
+        $deviceInfo = $this->validateDeviceInfo($payload->device_info ?? null);
+        $operationalStatus = $this->validateOperationalStatus($payload->operational_status ?? null);
+        $configAcknowledgement = $this->validateConfigAcknowledgement($payload->config_ack ?? null);
 
         if (!$this->validateDefinition($payload, 'heartbeat')) {
             throw new ApiException(422, 'INVALID_HEARTBEAT', 'Heartbeat does not match Sensor Protocol V1');
@@ -191,7 +200,145 @@ final class ProtocolValidator
             'firmware_version' => $payload->firmware_version,
             'hardware_revision' => $payload->hardware_revision,
             ...$telemetry,
+            'device_info' => $deviceInfo,
+            'operational_status' => $operationalStatus,
+            'config_ack' => $configAcknowledgement,
         ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function validateDeviceInfo(mixed $value): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (!$value instanceof stdClass) {
+            throw new ApiException(422, 'INVALID_DEVICE_INFO', 'device_info must be an object');
+        }
+        $required = [
+            'board_model', 'chip_model', 'chip_revision', 'cpu_cores', 'flash_bytes', 'psram_bytes',
+            'heap_free_bytes', 'sensor_model', 'sensor_status', 'queue_capacity', 'capabilities',
+        ];
+        foreach ($required as $field) {
+            if (!property_exists($value, $field)) {
+                throw new ApiException(422, 'INVALID_DEVICE_INFO', sprintf('%s is required in device_info', $field));
+            }
+        }
+        foreach (['board_model', 'chip_model', 'sensor_model'] as $field) {
+            if (!is_string($value->{$field})
+                || preg_match('/^[A-Za-z0-9][A-Za-z0-9._+ -]{0,63}$/', $value->{$field}) !== 1) {
+                throw new ApiException(422, 'INVALID_DEVICE_INFO', sprintf('%s has an invalid format', $field));
+            }
+        }
+        if (!is_int($value->chip_revision) || $value->chip_revision < 0 || $value->chip_revision > 255
+            || !is_int($value->cpu_cores) || $value->cpu_cores < 1 || $value->cpu_cores > 8) {
+            throw new ApiException(422, 'INVALID_DEVICE_INFO', 'chip_revision or cpu_cores is invalid');
+        }
+        foreach (['flash_bytes', 'psram_bytes', 'heap_free_bytes'] as $field) {
+            if (!is_int($value->{$field}) || $value->{$field} < 0 || $value->{$field} > 17179869184) {
+                throw new ApiException(422, 'INVALID_DEVICE_INFO', sprintf('%s is outside the supported range', $field));
+            }
+        }
+        if (!is_string($value->sensor_status) || !in_array($value->sensor_status, ['ready', 'unavailable', 'error'], true)
+            || !is_int($value->queue_capacity) || $value->queue_capacity < 1 || $value->queue_capacity > 5000) {
+            throw new ApiException(422, 'INVALID_DEVICE_INFO', 'sensor_status or queue_capacity is invalid');
+        }
+        if (!is_array($value->capabilities) || count($value->capabilities) > 20) {
+            throw new ApiException(422, 'INVALID_DEVICE_INFO', 'capabilities must contain at most 20 codes');
+        }
+        $capabilities = [];
+        foreach ($value->capabilities as $capability) {
+            if (!is_string($capability) || preg_match('/^[a-z][a-z0-9_]{0,31}$/', $capability) !== 1) {
+                throw new ApiException(422, 'INVALID_DEVICE_INFO', 'capability codes have an invalid format');
+            }
+            $capabilities[] = $capability;
+        }
+        if (count(array_unique($capabilities)) !== count($capabilities)) {
+            throw new ApiException(422, 'INVALID_DEVICE_INFO', 'capability codes must be unique');
+        }
+
+        return [
+            'board_model' => $value->board_model,
+            'chip_model' => $value->chip_model,
+            'chip_revision' => $value->chip_revision,
+            'cpu_cores' => $value->cpu_cores,
+            'flash_bytes' => $value->flash_bytes,
+            'psram_bytes' => $value->psram_bytes,
+            'heap_free_bytes' => $value->heap_free_bytes,
+            'sensor_model' => $value->sensor_model,
+            'sensor_status' => $value->sensor_status,
+            'queue_capacity' => $value->queue_capacity,
+            'capabilities' => $capabilities,
+        ];
+    }
+
+    /** @return array<string, mixed>|null */
+    private function validateOperationalStatus(mixed $value): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (!$value instanceof stdClass) {
+            throw new ApiException(422, 'INVALID_OPERATIONAL_STATUS', 'operational_status must be an object');
+        }
+        $integerFields = [
+            'queue_depth' => 5000,
+            'awake_ms' => 3600000,
+            'wifi_failures_since_report' => 4294967295,
+            'upload_failures_since_report' => 4294967295,
+            'max_consecutive_wifi_failures' => 4294967295,
+            'sleep_fallbacks_since_report' => 4294967295,
+        ];
+        if (!property_exists($value, 'provisioned') || !is_bool($value->provisioned)) {
+            throw new ApiException(422, 'INVALID_OPERATIONAL_STATUS', 'provisioned must be a boolean');
+        }
+        foreach ($integerFields as $field => $maximum) {
+            if (!property_exists($value, $field) || !is_int($value->{$field})
+                || $value->{$field} < 0 || $value->{$field} > $maximum) {
+                throw new ApiException(422, 'INVALID_OPERATIONAL_STATUS', sprintf('%s is invalid', $field));
+            }
+        }
+        foreach (['wake_reason', 'reset_reason'] as $field) {
+            if (!property_exists($value, $field) || !is_string($value->{$field})
+                || preg_match('/^[a-z][a-z0-9_]{0,31}$/', $value->{$field}) !== 1) {
+                throw new ApiException(422, 'INVALID_OPERATIONAL_STATUS', sprintf('%s is invalid', $field));
+            }
+        }
+        if (!property_exists($value, 'requested_sleep_mode') || !is_string($value->requested_sleep_mode)
+            || !in_array($value->requested_sleep_mode, ['deep_sleep', 'light_sleep_fallback', 'awake_restart_fallback', 'none'], true)) {
+            throw new ApiException(422, 'INVALID_OPERATIONAL_STATUS', 'requested_sleep_mode is invalid');
+        }
+
+        $normalized = [
+            'provisioned' => $value->provisioned,
+            'wake_reason' => $value->wake_reason,
+            'reset_reason' => $value->reset_reason,
+            'requested_sleep_mode' => $value->requested_sleep_mode,
+        ];
+        foreach (array_keys($integerFields) as $field) {
+            $normalized[$field] = $value->{$field};
+        }
+
+        return $normalized;
+    }
+
+    /** @return array<string, int|string>|null */
+    private function validateConfigAcknowledgement(mixed $value): ?array
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (!$value instanceof stdClass || !property_exists($value, 'applied_version')
+            || !is_int($value->applied_version) || $value->applied_version < 0 || $value->applied_version > 4294967295
+            || !property_exists($value, 'status') || !is_string($value->status)
+            || !in_array($value->status, ['default', 'applied', 'rejected'], true)) {
+            throw new ApiException(422, 'INVALID_CONFIG_ACK', 'config_ack is invalid');
+        }
+        if ($value->status === 'applied' && $value->applied_version < 1) {
+            throw new ApiException(422, 'INVALID_CONFIG_ACK', 'an applied config acknowledgement needs a positive version');
+        }
+
+        return ['applied_version' => $value->applied_version, 'status' => $value->status];
     }
 
     /** @return array{battery_mv: int, rssi_dbm: int, wifi_connect_ms: int, boot_count: int, errors: list<string>} */

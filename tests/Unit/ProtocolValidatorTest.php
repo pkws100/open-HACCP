@@ -65,6 +65,33 @@ final class ProtocolValidatorTest extends TestCase
         $this->validator->validateBatchEnvelope($batch);
     }
 
+    public function testValidatesPowerManagedDeviceStatusAndConfigAcknowledgement(): void
+    {
+        $batch = $this->batch(new \DateTimeImmutable('now', new \DateTimeZone('UTC')));
+        $batch->device_info = (object) [
+            'board_model' => 'ESP32-S3-DevKitC-1', 'chip_model' => 'ESP32-S3', 'chip_revision' => 0,
+            'cpu_cores' => 2, 'flash_bytes' => 8388608, 'psram_bytes' => 8388608,
+            'heap_free_bytes' => 240000, 'sensor_model' => 'SHT45', 'sensor_status' => 'ready',
+            'queue_capacity' => 64, 'capabilities' => ['temperature', 'deep_sleep', 'remote_config'],
+        ];
+        $batch->operational_status = (object) [
+            'provisioned' => true, 'queue_depth' => 7, 'awake_ms' => 2100,
+            'wake_reason' => 'timer', 'reset_reason' => 'deep_sleep', 'requested_sleep_mode' => 'deep_sleep',
+            'wifi_failures_since_report' => 5, 'upload_failures_since_report' => 2,
+            'max_consecutive_wifi_failures' => 5, 'sleep_fallbacks_since_report' => 1,
+        ];
+        $batch->config_ack = (object) ['applied_version' => 3, 'status' => 'applied'];
+
+        $validated = $this->validator->validateBatchEnvelope($batch);
+        self::assertSame('ESP32-S3-DevKitC-1', $validated['device_info']['board_model']);
+        self::assertSame(5, $validated['operational_status']['max_consecutive_wifi_failures']);
+        self::assertSame(['applied_version' => 3, 'status' => 'applied'], $validated['config_ack']);
+
+        $batch->operational_status->queue_depth = 5001;
+        $this->expectException(\Haccp\Api\ApiException::class);
+        $this->validator->validateBatchEnvelope($batch);
+    }
+
     private function batch(\DateTimeImmutable $sent): \stdClass
     {
         return json_decode(json_encode([

@@ -31,7 +31,7 @@ final readonly class AnalysisService
         $to = $this->clock->database($now);
         $measurements = $this->analysis->measurements($from, $to, $deviceUid, $pointId);
         $battery = $this->batteryForecast($measurements, $deviceUid);
-        $kpis = $this->analysis->fleetKpis($from);
+        $kpis = $this->analysis->fleetKpis($from, $to, $deviceUid, $pointId);
         foreach ($kpis as $key => $value) {
             $kpis[$key] = (int) $value;
         }
