@@ -45,6 +45,7 @@ export function batteryIcon(state) {
 
 export function powerLabel(battery) {
   if (battery?.power_source === 'mains') return 'Netzbetrieb · Batteriewert nicht verfügbar';
+  if (battery?.power_source === 'battery_unmonitored') return 'Batteriebetrieb · Batteriewert nicht verfügbar';
   if (battery?.millivolts == null) return 'Batteriewert nicht verfügbar';
   return `${batteryIcon(battery.state)} ${formatNumber(battery.millivolts, ' mV')}`;
 }

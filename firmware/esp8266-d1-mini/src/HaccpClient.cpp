@@ -335,9 +335,14 @@ void HaccpClient::addDeviceStatus(JsonDocument &document, const DeviceDiagnostic
     info["sensor_status"] = diagnostics.sensorReady ? "ready" : "unavailable";
     info["queue_capacity"] = DeviceState::QueueCapacity;
     JsonArray capabilities = info["capabilities"].to<JsonArray>();
-    for (const char *capability : {"temperature", "humidity", "mains_power", "wifi_rssi", "deep_sleep", "remote_config", "provisioning_ap"}) {
+    for (const char *capability : {"temperature", "humidity", "wifi_rssi", "deep_sleep", "remote_config", "provisioning_ap"}) {
         capabilities.add(capability);
     }
+#if OPEN_HACCP_BATTERY_POWER_UNMONITORED
+    capabilities.add("battery_power_unmonitored");
+#else
+    capabilities.add("mains_power");
+#endif
 
     JsonObject status = document["operational_status"].to<JsonObject>();
     status["provisioned"] = true;

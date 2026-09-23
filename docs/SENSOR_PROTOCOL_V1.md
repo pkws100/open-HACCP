@@ -32,7 +32,16 @@ The device key contains 32 random bytes encoded as 64 hexadecimal characters. Th
 
 These limits detect technical errors and are not HACCP alarm thresholds. Batch metadata, diagnostics, and heartbeat objects may contain new metadata fields. Measurement objects are strict: unknown fields reject that individual measurement.
 
-`battery_mv` remains a required key in measurements, batch diagnostics, and heartbeats. USB-powered boards without a battery sensor send JSON `null` in all three locations, never an estimated voltage or `0` as a missing-value marker. Their `device_info.capabilities` includes `mains_power` and omits `battery`. The backend stores `NULL`, displays **Netzbetrieb · Batteriewert nicht verfügbar**, excludes these readings from battery forecasts, and does not raise a low-battery event. Older firmware that sends a measured integer remains valid. A `null` value without `mains_power` means only that the battery value is unavailable; it does not claim mains power.
+`battery_mv` remains a required key in measurements, batch diagnostics, and heartbeats. Send JSON `null` in all three locations when no battery-voltage measurement exists, never an estimated voltage or `0` as a missing-value marker. The optional `device_info.capabilities` identifies the power source when known:
+
+| Value and capability | Dashboard interpretation | Low-battery event |
+|---|---|---|
+| Measured integer (`battery` or legacy client) | Real measured battery voltage; existing battery display and forecasts | Evaluated against configured threshold |
+| `null` with `mains_power` | **Netzbetrieb · Batteriewert nicht verfügbar** | None |
+| `null` with `battery_power_unmonitored` | **Batteriebetrieb · Batteriewert nicht verfügbar**; no state-of-charge or remaining-life estimate | None |
+| `null` without either power-source capability | Battery value unavailable; power source unknown | None |
+
+`mains_power` and `battery_power_unmonitored` describe different power sources and must not be sent together. Firmware without a voltage-sense circuit omits `battery`. The backend stores SQL `NULL` for the unavailable value and excludes it from battery forecasts. Existing devices that send measured integers remain valid and keep their battery alarms and display.
 
 ## Optional firmware identity and operational state
 
@@ -172,7 +181,7 @@ Firmware validates and persists a newer configuration before using its cadence. 
 
 Only operational, non-secret configuration is returned. WLAN credentials, device keys, setup passwords, and other provisioning secrets are never included in config, heartbeat, or batch responses. `GET /config` remains the authoritative fallback and explicit configuration check.
 
-Events, corrective actions, analyses and exports are dashboard functions and do not alter Sensor Protocol V1. The server derives state events for temperature, low battery, weak RSSI and offline devices, plus discrete rejections, gaps and firmware codes. ACK/rejection correlation remains the only authority for deleting firmware queue records.
+Events, corrective actions, analyses and exports are dashboard functions and do not alter Sensor Protocol V1. The server derives state events for temperature, low battery **when a numeric battery voltage exists**, weak RSSI and offline devices, plus discrete rejections, gaps and firmware codes. ACK/rejection correlation remains the only authority for deleting firmware queue records.
 
 ## HTTP and error codes
 

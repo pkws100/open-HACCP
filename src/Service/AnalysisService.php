@@ -75,6 +75,14 @@ final readonly class AnalysisService
         if ($deviceUid === null) {
             return ['status' => 'device_required', 'estimated_days_remaining' => null, 'confidence' => null, 'series' => []];
         }
+        $device = $this->dashboard->deviceByUid($deviceUid);
+        $deviceInfo = json_decode((string) ($device['device_info_json'] ?? ''), true);
+        $capabilities = is_array($deviceInfo) && is_array($deviceInfo['capabilities'] ?? null)
+            ? $deviceInfo['capabilities'] : [];
+        if (($device['last_battery_mv'] ?? null) === null
+            && (in_array('mains_power', $capabilities, true) || in_array('battery_power_unmonitored', $capabilities, true))) {
+            return ['status' => 'unavailable', 'estimated_days_remaining' => null, 'confidence' => null, 'series' => []];
+        }
         if ($measurements === []) {
             return ['status' => 'insufficient_data', 'estimated_days_remaining' => null, 'confidence' => null, 'series' => []];
         }

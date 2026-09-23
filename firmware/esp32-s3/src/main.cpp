@@ -202,21 +202,32 @@ bool fetchAndApplyConfig(int64_t now)
 
 void sampleSensor(int64_t now)
 {
-    deviceState.recordSample(now);
     if (!sensorReady) {
+        deviceState.recordSample(now);
         deviceState.recordSensorUnavailable();
         return;
     }
 #if defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
+    // AM2302 returns the previous internal conversion on its first bus read.
+    // Discard it, then wait beyond the DHT library's 2000 ms cache interval so
+    // the next call performs a fresh bus transaction. Temperature shares that
+    // second transaction's cached payload with humidity.
+    const uint32_t readStartedAt = millis();
+    (void)sensor.readHumidity();
+    delay(2100);
     const float humidityRh = sensor.readHumidity();
     const float temperatureC = sensor.readTemperature();
+    const int64_t acquiredAt = validClock() ? static_cast<int64_t>(time(nullptr))
+        : now + static_cast<uint32_t>(millis() - readStartedAt) / 1000U;
 #else
     sensors_event_t humidity;
     sensors_event_t temperature;
     sensor.getEvent(&humidity, &temperature);
     const float humidityRh = humidity.relative_humidity;
     const float temperatureC = temperature.temperature;
+    const int64_t acquiredAt = now;
 #endif
+    deviceState.recordSample(acquiredAt);
     if (!validSensorReading(temperatureC, humidityRh)) {
 #if defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
         deviceState.recordDhtReadFailure();
@@ -233,7 +244,7 @@ void sampleSensor(int64_t now)
 #endif
     sensorReady = true;
     if (!deviceState.enqueue(
-        now,
+        acquiredAt,
         temperatureC,
         humidityRh,
         batteryMillivolts()

@@ -16,7 +16,15 @@ Beide Module ausschließlich an **3,3 V** anschließen. Nicht nach den Farben de
 
 Der Datenpin ist je Build konfigurierbar: ESP32 `OPEN_HACCP_DHT_DATA_PIN=21`, D1 mini `OPEN_HACCP_DHT_PIN=4`. Diese GPIO-Nummern stehen als Vorgabe im jeweiligen `FirmwareConfig.h` und können mit einem PlatformIO-`build_flags`-Override für eine abweichend geprüfte Verdrahtung geändert werden. `D2` ist die D1-mini-Boardbeschriftung für `GPIO4`, keine GPIO-Nummer 2.
 
-Der DHT-Datenleiter benötigt einen Pull-up nach 3,3 V. Einige dreipolige Modulplatinen haben ihn bereits; das Shopfoto beweist das nicht. Platine/Schaltplan oder den Widerstand zwischen `OUT` und `+` bei abgezogener Versorgung prüfen. Fehlt er, einen externen **4,7–10 kΩ** Widerstand zwischen `OUT` und `3V3` ergänzen. Nur einen sauberen Pull-up vorsehen. Der DHT22 darf nicht schneller als etwa alle zwei Sekunden abgefragt werden; die Firmware wartet nach dem Einschalten/Neustart auf den Sensor.
+Der DHT-Datenleiter benötigt einen Pull-up nach 3,3 V. Einige dreipolige Modulplatinen haben ihn bereits; das Shopfoto beweist das nicht. Platine/Schaltplan oder den Widerstand zwischen `OUT` und `+` bei abgezogener Versorgung prüfen. Fehlt er, einen externen **4,7–10 kΩ** Widerstand zwischen `OUT` und `3V3` ergänzen. Nur einen sauberen Pull-up vorsehen. Der DHT22 darf nicht schneller als etwa alle zwei Sekunden abgefragt werden; die Firmware wartet nach dem Einschalten/Neustart auf den Sensor. Für eine aktuelle AM2302-Messung verwirft sie den ersten Busabruf und nutzt nach weiteren 2,1 Sekunden den zweiten; diese zusätzliche Wachzeit ist bei der Batterielaufzeit zu berücksichtigen.
+
+### Einsatz im Gefrierschrank
+
+Das [Aosong-AM2302-Datenblatt](https://www.aosong.com/uploadfiles/2025/04/20250417105409216.pdf) nennt **−40 bis +80 °C** als Temperaturbereich. Für relative Feuchte unter **0 °C** weist es keine gesicherte Genauigkeit aus; seine Genauigkeitsangaben setzen zudem **kondensationsfreie** Bedingungen voraus. Bei **3,3 V** darf die Sensorleitung laut Hersteller höchstens **1 m** lang sein. Nach dem Einschalten **mehr als 2 s** bis zur ersten Abfrage warten und zwischen zwei Abfragen **mindestens 2 s** lassen.
+
+Die beiden neuen Firmwareprofile setzen die Herstellerempfehlung für zwei Busabfragen um: Nach der Anlaufzeit verwerfen sie die erste Abfrage, warten **2,1 s** und verwenden erst die zweite für eine HACCP-Messung. So wird ein vom Sensor zwischengespeicherter Vorwert nicht als neue Messung ausgegeben.
+
+Für einen Gefrierschrank ist es daher eine praktische Schlussfolgerung, ESP-Entwicklungsboard und Akku außerhalb zu lassen und nur den Sensor mit kurzer Leitung am Messpunkt zu platzieren. Die Kabeldurchführung sorgfältig abdichten, ohne die Sensoröffnung zu verschließen; die Temperatur vor dem HACCP-Einsatz mit einem geeigneten Referenzthermometer vergleichen. Ein solcher Gefrierschrankaufbau wurde hier noch nicht getestet.
 
 Für den ersten USB-, Portal- und Sensortest **keine** zusätzliche Sleep-Brücke setzen. Erst wenn automatisches zeitgesteuertes Aufwachen des **D1 mini** geprüft werden soll, `D0`/`GPIO16` mit `RST` verbinden und das Sleep-Profil flashen. Ohne diese Verbindung wacht ein ESP8266 aus Deep Sleep nicht selbstständig per Timer auf. Das ESP32-Board braucht diese Brücke nicht. Die bewusste Factory-Reset-Geste löscht auch noch nicht hochgeladene Messungen: beim D1 mini `D5`/`GPIO14`, beim ESP32-WROOM `GPIO27` während des Boots mindestens fünf Sekunden an GND halten. Diese Reset-Brücke nur bei Bedarf stecken. `GPIO0`/`BOOT` am ESP32-WROOM dafür nicht verwenden: LOW bei Reset startet den seriellen Bootloader statt der Firmware. Ein normaler Reset-Tasterdruck ist keine Factory-Reset-Geste.
 
@@ -109,6 +117,36 @@ Am D1 mini **zuerst** die Verbindung `D0`/`GPIO16` → `RST` bei ausgeschalteter
 
 ```bash
 pio run -d firmware/esp8266-d1-mini -e d1-mini-dht22-sleep -t upload --upload-port "$PORT"
+```
+
+## Geplantes zweites Gerät: Batterie ohne Spannungsmessung
+
+Für ein späteres, extern versorgtes DHT22-Gerät gibt es **eigene** Buildprofile. Sie sind noch an keinem zweiten Board oder Akku geprüft. Das Gerät meldet `battery_mv: null` und die Fähigkeit `battery_power_unmonitored`. Das Dashboard zeigt **Batteriebetrieb · Batteriewert nicht verfügbar** und löst keinen Alarm wegen niedriger Batteriespannung aus. Daraus lässt sich weder Ladezustand noch Restlaufzeit ableiten; hierfür wäre eine gesondert verdrahtete und kalibrierte Spannungsmessung nötig.
+
+Eine Batterie nur über eine **geregelte 5-V-Versorgung** an den zuvor für das konkrete Board verifizierten 5-V-/VIN-Eingang und GND anschließen. Vorher Pinbeschriftung, Polarität, Wandlerausgang und Board-Schaltplan prüfen; den DHT22 weiterhin an **3V3** betreiben. Die Batterie während USB-Flash und seriellem Test vollständig trennen. **USB und externe 5 V nicht gleichzeitig anschließen.** Für einen USB-Test des Batterieprofils bleibt die externe Batterie abgeklemmt. Die Laufzeit eines generischen ESP32- oder D1-mini-Devkits muss mit dem tatsächlichen Akku, Wandler und Mess-/Uploadtakt gemessen werden; aus der Firmware lässt sie sich nicht verlässlich versprechen.
+
+`PORT` ist der zuvor per USB ermittelte serielle Port. Zuerst die Normalprofile über USB prüfen. Auf einem fabrikneuen D1 mini das einmalige `uploadfs` aus Schritt 3 vor dem ersten Firmware-Upload ausführen, danach beim Profilwechsel nicht wiederholen.
+
+```bash
+# ESP32: Batterie ohne Spannungsmessung, USB-Test ohne Deep Sleep
+pio run -d firmware/esp32-s3 -e esp32-wroom-dht22-battery-unmonitored
+pio run -d firmware/esp32-s3 -e esp32-wroom-dht22-battery-unmonitored -t upload --upload-port "$PORT"
+
+# D1 mini: Batterie ohne Spannungsmessung, USB-Test ohne Deep Sleep
+pio run -d firmware/esp8266-d1-mini -e d1-mini-dht22-battery-unmonitored
+pio run -d firmware/esp8266-d1-mini -e d1-mini-dht22-battery-unmonitored -t upload --upload-port "$PORT"
+```
+
+Die Sleep-Varianten erst nach dem Aufwachtest aus Schritt 7 flashen. Beim D1 mini muss dafür **D0/GPIO16 → RST** verbunden sein.
+
+```bash
+# ESP32: Deep Sleep, keine D0-RST-Brücke
+pio run -d firmware/esp32-s3 -e esp32-wroom-dht22-battery-unmonitored-sleep
+pio run -d firmware/esp32-s3 -e esp32-wroom-dht22-battery-unmonitored-sleep -t upload --upload-port "$PORT"
+
+# D1 mini: Deep Sleep, erst mit D0/GPIO16 → RST
+pio run -d firmware/esp8266-d1-mini -e d1-mini-dht22-battery-unmonitored-sleep
+pio run -d firmware/esp8266-d1-mini -e d1-mini-dht22-battery-unmonitored-sleep -t upload --upload-port "$PORT"
 ```
 
 ## Referenzen

@@ -1,5 +1,5 @@
 import { api, setCsrfToken } from './api.js?v=20260810-1';
-import { overviewView } from './views/overview.js?v=20260923-1';
+import { overviewView } from './views/overview.js?v=20260923-2';
 import { analysisView } from './views/analysis.js?v=20260923-1';
 import { eventsView } from './views/events.js?v=20260810-1';
 import { exportsView } from './views/exports.js?v=20260810-1';

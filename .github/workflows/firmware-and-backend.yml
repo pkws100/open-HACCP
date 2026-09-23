@@ -58,6 +58,8 @@ jobs:
         run: vendor/bin/phinx migrate -e test
       - name: Run backend tests
         run: vendor/bin/phpunit
+      - name: Run dashboard JavaScript tests
+        run: node --test tests/JavaScript/*.mjs
 
   firmware:
     name: ${{ matrix.profile.name }} build
@@ -73,9 +75,27 @@ jobs:
           - name: ESP32 WROOM DHT22
             project: firmware/esp32-s3
             environment: esp32-wroom-dht22
+          - name: ESP32 WROOM DHT22 sleep
+            project: firmware/esp32-s3
+            environment: esp32-wroom-dht22-sleep
+          - name: ESP32 WROOM DHT22 battery unmonitored
+            project: firmware/esp32-s3
+            environment: esp32-wroom-dht22-battery-unmonitored
+          - name: ESP32 WROOM DHT22 battery unmonitored sleep
+            project: firmware/esp32-s3
+            environment: esp32-wroom-dht22-battery-unmonitored-sleep
           - name: ESP8266 D1 mini DHT22
             project: firmware/esp8266-d1-mini
             environment: d1-mini-dht22
+          - name: ESP8266 D1 mini DHT22 sleep
+            project: firmware/esp8266-d1-mini
+            environment: d1-mini-dht22-sleep
+          - name: ESP8266 D1 mini DHT22 battery unmonitored
+            project: firmware/esp8266-d1-mini
+            environment: d1-mini-dht22-battery-unmonitored
+          - name: ESP8266 D1 mini DHT22 battery unmonitored sleep
+            project: firmware/esp8266-d1-mini
+            environment: d1-mini-dht22-battery-unmonitored-sleep
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

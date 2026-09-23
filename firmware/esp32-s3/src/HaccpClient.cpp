@@ -346,7 +346,11 @@ void HaccpClient::addDeviceStatus(JsonDocument &document, const DeviceDiagnostic
     for (const char *capability : {"temperature", "humidity", "wifi_rssi", "deep_sleep", "remote_config", "provisioning_ap"}) {
         capabilities.add(capability);
     }
+#if OPEN_HACCP_BATTERY_POWER_UNMONITORED
+    capabilities.add("battery_power_unmonitored");
+#else
     capabilities.add(diagnostics.batteryMv == UINT16_MAX ? "mains_power" : "battery");
+#endif
 
     JsonObject status = document["operational_status"].to<JsonObject>();
     status["provisioned"] = true;

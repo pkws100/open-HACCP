@@ -91,7 +91,7 @@ upload_state      : pending | acknowledged
 
 Sequence state must survive reset and deep sleep. Never reuse a sequence for changed data. A batch may contain more than one measurement point, but sequences are independent per point. The current ESP32-S3/SHT45 build represents one provisioned physical point, selects that point's effective server interval, compiles a 64-record durable queue, and caps a server-provided larger batch size at 64; another client may support more physical points or a different lower compiled maximum than the protocol limit.
 
-For a USB-powered board without battery sensing, preserve `battery_mv: null` in each stored measurement and send the same explicit JSON null in batch diagnostics or heartbeat telemetry. Include `mains_power` and omit `battery` in `device_info.capabilities`. Never substitute 0 or a guessed voltage. A board with real battery measurement continues to send its measured integer.
+When no battery-voltage sensor is wired, preserve `battery_mv: null` in each stored measurement and send the same explicit JSON null in batch diagnostics or heartbeat telemetry. Include exactly the applicable power-source capability in `device_info.capabilities`: `mains_power` for USB/mains operation or `battery_power_unmonitored` for externally battery-powered operation without voltage sensing. Omit `battery` for both. Never substitute 0 or a guessed voltage. The backend displays **Netzbetrieb · Batteriewert nicht verfügbar** or **Batteriebetrieb · Batteriewert nicht verfügbar** accordingly, excludes the nulls from battery forecasts, and creates no low-battery event from them. `battery_power_unmonitored` provides no state-of-charge or remaining-life estimate. A board with real battery measurement continues to send its measured integer and retains the existing battery display and low-battery evaluation.
 
 Durably store the current config and applied-version acknowledgement, effective interval for every supported physical point, last sample/upload/config-check and retry deadlines, retry counters, boot counter, monotonic sequences, pending queue and stable failure flags. Wake/reset must reconstruct the same pending records and deadlines. The checked-in power-managed reference persists these domains in NVS. A production firmware must still size storage for the selected offline guarantee and complete destructive power-loss/A-B or journal recovery tests; 64 records are not sufficient for every interval, upload cadence and outage duration.
 
@@ -156,7 +156,7 @@ Required diagnostic ranges:
 
 | Value | Range | Unit |
 |---|---:|---|
-| battery | 0..10000 | mV |
+| battery | 0..10000, or JSON `null` when unavailable | mV when measured |
 | RSSI | -120..0 | dBm |
 | Wi-Fi connect | 0..120000 | ms |
 | boot count | 0..4294967295 | count |
@@ -272,10 +272,10 @@ BOOT / RTC WAKE
     restore durable sequence, config, pending records, retry state
     determine which measurement-point deadlines are due
     for each due physical point:
-        power and read sensor plus battery
+        power and read sensor; read battery only if a sense circuit exists
         if values valid:
             sequence[point] += 1 and persist sequence
-            persist new pending temperature/humidity/battery measurement
+            persist new pending temperature/humidity measurement with measured battery or JSON null
         advance that point deadline from its server-provided effective interval
 
     determine whether upload/config refresh/retry is due or storage is near capacity

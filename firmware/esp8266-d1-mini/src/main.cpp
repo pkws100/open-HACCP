@@ -140,10 +140,18 @@ bool fetchAndApplyConfig(int64_t now)
 
 void sampleSensor(int64_t now)
 {
-    deviceState.recordSample(now);
-    // DHT::begin() ran at least 2.5 seconds ago. The server's minimum interval is 30 s.
+    // DHT::begin() ran at least 2.5 seconds ago. AM2302's first bus read
+    // returns its previous internal conversion, so discard that payload.
+    // Adafruit DHT caches readings for 2000 ms: waiting 2100 ms ensures the
+    // second humidity call reaches the sensor. Temperature shares that frame.
+    const uint32_t readStartedAt = millis();
+    (void)sensor.readHumidity();
+    delay(2100);
     const float humidity = sensor.readHumidity();
     const float temperature = sensor.readTemperature();
+    const int64_t acquiredAt = validClock() ? static_cast<int64_t>(time(nullptr))
+        : now + static_cast<uint32_t>(millis() - readStartedAt) / 1000U;
+    deviceState.recordSample(acquiredAt);
     if (!isfinite(temperature) || !isfinite(humidity)
         || temperature < -100 || temperature > 150 || humidity < 0 || humidity > 100) {
         sensorReady = false;
@@ -154,7 +162,7 @@ void sampleSensor(int64_t now)
     }
     sensorReady = true;
     deviceState.recordSensorSuccess();
-    if (!deviceState.enqueue(now, temperature, humidity)) {
+    if (!deviceState.enqueue(acquiredAt, temperature, humidity)) {
         deviceState.recordQueueFull();
         Serial.println("Queue full or storage unavailable; older pending readings retained.");
         return;

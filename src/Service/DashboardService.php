@@ -122,7 +122,16 @@ final readonly class DashboardService
     {
         $batteryMv = isset($row['last_battery_mv']) ? (int) $row['last_battery_mv'] : null;
         $deviceInfo = $this->jsonObject($row['device_info_json'] ?? null);
-        $mainsPower = $batteryMv === null && in_array('mains_power', $deviceInfo['capabilities'] ?? [], true);
+        $capabilities = is_array($deviceInfo['capabilities'] ?? null) ? $deviceInfo['capabilities'] : [];
+        if ($batteryMv !== null) {
+            $powerSource = 'battery';
+        } elseif (in_array('battery_power_unmonitored', $capabilities, true)) {
+            $powerSource = 'battery_unmonitored';
+        } elseif (in_array('mains_power', $capabilities, true)) {
+            $powerSource = 'mains';
+        } else {
+            $powerSource = 'unknown';
+        }
         $rssiDbm = isset($row['last_rssi_dbm']) ? (int) $row['last_rssi_dbm'] : null;
         $minimum = $this->float($row['temperature_min_c'] ?? null);
         $maximum = $this->float($row['temperature_max_c'] ?? null);
@@ -171,12 +180,12 @@ final readonly class DashboardService
             'photo' => $this->photo($row),
             'battery' => [
                 'millivolts' => $batteryMv,
-                'power_source' => $mainsPower ? 'mains' : ($batteryMv !== null ? 'battery' : 'unknown'),
+                'power_source' => $powerSource,
                 'state' => $this->status->battery(
                     $batteryMv,
                     (int) ($row['battery_low_mv'] ?? 5600),
                     (int) ($row['battery_full_mv'] ?? 6000),
-                    $mainsPower,
+                    $powerSource === 'mains',
                 ),
             ],
             'wifi' => [
