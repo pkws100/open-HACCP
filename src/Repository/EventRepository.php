@@ -87,7 +87,7 @@ final readonly class EventRepository
     /** @return list<array<string, mixed>> */
     public function list(?string $state, ?string $deviceUid, string $from, string $to): array
     {
-        $where = ['e.opened_at >= :from', 'e.opened_at <= :to'];
+        $where = ["(e.opened_at >= :from OR (e.closed_at IS NULL AND e.state <> 'resolved'))", 'e.opened_at <= :to'];
         $params = ['from' => $from, 'to' => $to];
         if ($state !== null && $state !== 'all') {
             $where[] = 'e.state = :state';
@@ -104,7 +104,7 @@ final readonly class EventRepository
              FROM compliance_events e INNER JOIN devices d ON d.id = e.device_id
              LEFT JOIN measurement_points mp ON mp.id = e.measurement_point_id
              LEFT JOIN users ack ON ack.id = e.acknowledged_by_user_id
-             WHERE ' . implode(' AND ', $where) . ' ORDER BY e.opened_at DESC LIMIT 1000',
+             WHERE ' . implode(' AND ', $where) . ' ORDER BY (e.closed_at IS NULL AND e.state <> \'resolved\') DESC, e.opened_at DESC LIMIT 1000',
         );
         $statement->execute($params);
 

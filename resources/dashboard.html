@@ -94,7 +94,7 @@
       </section>
 
       <section class="view" data-view="events" aria-labelledby="events-title" hidden>
-        <header class="view-heading"><div><p class="eyebrow">Nachweisführung</p><h1 id="events-title">Abweichungen</h1><p>Ereignisse bestätigen, Korrekturmaßnahmen dokumentieren und nachvollziehbar prüfen.</p></div></header>
+        <header class="view-heading"><div><p class="eyebrow">Nachweisführung</p><h1 id="events-title">Abweichungen</h1><p>Ereignisse bestätigen, Korrekturmaßnahmen dokumentieren und nachvollziehbar prüfen. Laufende Abweichungen bleiben unabhängig vom gewählten Zeitraum sichtbar.</p></div></header>
         <div class="filter-bar"><label>Status<select id="event-state"><option value="all">Alle</option><option value="open">Offen</option><option value="acknowledged">Bestätigt</option><option value="action_recorded">Maßnahme erfasst</option><option value="verified">Geprüft</option><option value="resolved">Geschlossen</option></select></label><label>Gerät<select id="event-device"><option value="">Alle Geräte</option></select></label><label>Zeitraum<select id="event-days"><option value="7">7 Tage</option><option value="30" selected>30 Tage</option><option value="90">90 Tage</option><option value="366">366 Tage</option></select></label></div>
         <section class="data-section"><div class="table-wrap"><table><thead><tr><th>Zeitpunkt</th><th>Gerät / Messstelle</th><th>Ereignis</th><th>Schwere</th><th>Status</th><th>Maßnahmen</th></tr></thead><tbody id="event-table"></tbody></table></div></section>
       </section>
@@ -122,6 +122,6 @@
   </div>
 
   <dialog id="app-dialog" class="app-dialog"><div class="dialog-frame"><header><div><p class="eyebrow" id="dialog-eyebrow">Bearbeiten</p><h2 id="dialog-title">Eintrag</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Dialog schließen">×</button></header><div id="dialog-content"></div></div></dialog>
-  <script type="module" src="/assets/app.js?v=20260923-3"></script>
+  <script type="module" src="/assets/app.js?v=20260924-1"></script>
 </body>
 </html>

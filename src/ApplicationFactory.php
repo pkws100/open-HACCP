@@ -12,6 +12,7 @@ use Haccp\Controller\DeviceConfigController;
 use Haccp\Controller\DashboardController;
 use Haccp\Controller\DashboardDataController;
 use Haccp\Controller\DashboardDeviceController;
+use Haccp\Controller\DashboardIdentityController;
 use Haccp\Controller\DashboardSettingsController;
 use Haccp\Controller\EventController;
 use Haccp\Controller\ExportController;
@@ -46,6 +47,7 @@ use Haccp\Service\DeviceConfigService;
 use Haccp\Service\DeviceProvisioningService;
 use Haccp\Service\DashboardService;
 use Haccp\Service\DashboardSettingsService;
+use Haccp\Service\DashboardIdentityService;
 use Haccp\Service\DeviceStatusService;
 use Haccp\Service\EventWorkflowService;
 use Haccp\Service\ExportService;
@@ -109,6 +111,7 @@ final class ApplicationFactory
             $configService,
             $clock,
         );
+        $dashboardIdentity = new DashboardIdentityService($pdo, $devices, $measurementPoints, $audit, $clock);
         $validator = new ProtocolValidator($clock, dirname(__DIR__) . '/docs/protocol-v1.schema.json');
         $keys = new ApiKeyService($config->deviceKeyPepper);
         $deviceProvisioning = new DeviceProvisioningService(
@@ -172,6 +175,7 @@ final class ApplicationFactory
             ->add($readAccess);
         $app->get('/api/v1/dashboard/analysis', new AnalysisController($analysis))->add($readAccess);
         $app->post('/api/v1/dashboard/devices', new DashboardDeviceController($deviceProvisioning, $config, $audit))->add($writeAccess);
+        $app->put('/api/v1/dashboard/devices/{device_uid}/identity', new DashboardIdentityController($dashboardIdentity, $config))->add($writeAccess);
         $app->put('/api/v1/dashboard/devices/{device_uid}/settings', new DashboardSettingsController($dashboardSettings, $config, $audit))->add($writeAccess);
         $app->post('/api/v1/dashboard/devices/{device_uid}/battery-replaced', [$eventController, 'batteryReplaced'])->add($writeAccess);
         $app->get('/api/v1/dashboard/measurement-points/{id}/photos', [$photoController, 'list'])->add($readAccess);

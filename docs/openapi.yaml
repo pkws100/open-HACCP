@@ -537,6 +537,85 @@ paths:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
         "500":
           $ref: "#/components/responses/InternalError"
+  /api/v1/dashboard/devices/{device_uid}/identity:
+    put:
+      operationId: updateDashboardDeviceIdentity
+      summary: Change device and measurement-point display labels without changing protocol identity
+      description: >-
+        Administrator/operator endpoint protected by a database session and CSRF token. Device UID, measurement-point code,
+        sensor type, device key, status, configuration version, and historical measurements remain unchanged. Supply the device
+        name, a measurement point identified by its existing code, or both. The measurement-point name and location may be
+        changed independently; a null location clears it.
+      security:
+        - DashboardSession: []
+          CsrfToken: []
+      parameters:
+        - in: path
+          name: device_uid
+          required: true
+          schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{2,63}$" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name: { type: string, minLength: 1, maxLength: 160 }
+                measurement_point:
+                  type: object
+                  additionalProperties: false
+                  required: [code]
+                  anyOf:
+                    - required: [name]
+                    - required: [location]
+                  properties:
+                    code: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }
+                    name: { type: string, minLength: 1, maxLength: 160 }
+                    location: { type: [string, "null"], maxLength: 255 }
+            example:
+              name: Tiefkühlschrank Lager
+              measurement_point:
+                code: temperature-1
+                name: Innenraum
+                location: Lager Nord
+      responses:
+        "200":
+          description: Display labels saved; measurement_point is null if no point was selected
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [success, device, measurement_point]
+                properties:
+                  success: { type: boolean, const: true }
+                  device:
+                    type: object
+                    additionalProperties: false
+                    required: [device_uid, name, status]
+                    properties:
+                      device_uid: { type: string }
+                      name: { type: string }
+                      status: { type: string, enum: [active, disabled] }
+                  measurement_point:
+                    oneOf:
+                      - type: "null"
+                      - type: object
+                        additionalProperties: false
+                        required: [code, name, location]
+                        properties:
+                          code: { type: string }
+                          name: { type: string }
+                          location: { type: [string, "null"] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { description: Device or active measurement point not found }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "415": { $ref: "#/components/responses/UnsupportedMediaType" }
+        "422": { $ref: "#/components/responses/UnprocessableEntity" }
   /api/v1/dashboard/devices/{device_uid}/settings:
     put:
       operationId: updateDashboardDeviceSettings
