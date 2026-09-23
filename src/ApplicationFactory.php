@@ -62,6 +62,7 @@ use Haccp\Support\Database;
 use Haccp\Support\JsonResponse;
 use Haccp\Support\LoggerFactory;
 use PDO;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Log\LoggerInterface;
 use Slim\App;
@@ -151,6 +152,11 @@ final class ApplicationFactory
         $heartbeatService = new HeartbeatService($pdo, $validator, $devices, $transmissions, $configService, $eventTransitions, $clock);
 
         $app = SlimAppFactory::create();
+        $app->get('/', static function (ServerRequestInterface $request, ResponseInterface $response): ResponseInterface {
+            return $response->withStatus(302)
+                ->withHeader('Location', '/dashboard')
+                ->withHeader('Cache-Control', 'no-store');
+        });
         $app->get('/health', new HealthController($pdo));
         $readAccess = new SessionAuthenticationMiddleware($auth, AuthService::ROLES);
         $writeAccess = new SessionAuthenticationMiddleware($auth, ['administrator', 'operator'], true);
