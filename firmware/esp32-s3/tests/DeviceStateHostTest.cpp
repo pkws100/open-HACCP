@@ -7,10 +7,17 @@
 #include "Preferences.h"
 #include "AckCorrelation.h"
 #include "DeviceState.h"
+#include "QueuePressure.h"
 #include "SensorValidation.h"
 
 int main()
 {
+    // Server batch 500 exceeds the 64-slot queue: upload with four slots free.
+    assert(!QueuePressure::reached(59, 500, DeviceState::QueueCapacity));
+    assert(QueuePressure::reached(60, 500, DeviceState::QueueCapacity));
+    assert(QueuePressure::reached(8, 8, DeviceState::QueueCapacity));
+    assert(!QueuePressure::reached(7, 8, DeviceState::QueueCapacity));
+
     assert(validSensorReading(4.2F, 78.0F));
     assert(!validSensorReading(NAN, 78.0F));
     assert(!validSensorReading(4.2F, NAN));

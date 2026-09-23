@@ -14,6 +14,7 @@
 #include "DeviceState.h"
 #include "HaccpClient.h"
 #include "ProvisioningPortal.h"
+#include "QueuePressure.h"
 #include "SensorValidation.h"
 
 namespace {
@@ -34,6 +35,18 @@ uint32_t bootCount = 0;
 uint32_t wifiConnectMs = 0;
 String currentWakeReason;
 String currentResetReason;
+
+static_assert(DeviceState::QueueCapacity > QueuePressure::Headroom,
+    "Offline queue must have room beyond its upload threshold");
+
+bool queuePressureReached()
+{
+    return QueuePressure::reached(
+        deviceState.pendingCount(),
+        runtimeConfig.maxBatchSize,
+        DeviceState::QueueCapacity
+    );
+}
 
 bool elapsed(uint32_t since, uint32_t interval)
 {
@@ -403,7 +416,7 @@ uint32_t nextSleepSeconds(int64_t now)
     } else {
         next = min(next, dueAt(state.lastSuccessfulTransmissionAt, runtimeConfig.uploadIntervalSeconds, now));
         next = min(next, dueAt(state.lastConfigCheckAt, OPEN_HACCP_CONFIG_REFRESH_SECONDS, now));
-        if (deviceState.pendingCount() >= runtimeConfig.maxBatchSize) {
+        if (queuePressureReached()) {
             next = now;
         }
     }
@@ -511,7 +524,7 @@ void runWakeCycle()
         && now >= dueAt(initialState.lastConfigCheckAt, OPEN_HACCP_CONFIG_REFRESH_SECONDS, now);
     const bool retryDue = validClock() && initialState.nextNetworkAttemptAt > 0
         && now >= initialState.nextNetworkAttemptAt;
-    const bool queuePressure = deviceState.pendingCount() >= runtimeConfig.maxBatchSize;
+    const bool queuePressure = queuePressureReached();
     bool networkDue = needsClock || uploadDue || configDue || retryDue || queuePressure;
     if (!validClock() && initialState.retrySleepPending) {
         networkDue = false;
@@ -539,7 +552,7 @@ void runWakeCycle()
             );
             configDue = now >= dueAt(deviceState.operational().lastConfigCheckAt, OPEN_HACCP_CONFIG_REFRESH_SECONDS, now);
             if (uploadDue || configDue || retryDue
-                || deviceState.pendingCount() >= runtimeConfig.maxBatchSize) {
+                || queuePressureReached()) {
                 uploadOrHeartbeat(now);
             }
         }
