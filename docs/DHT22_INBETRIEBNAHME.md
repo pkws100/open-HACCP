@@ -9,7 +9,7 @@ Voraussetzung am Rechner: [PlatformIO Core](https://docs.platformio.org/en/lates
 | Sensorplatine | ESP8266 D1 mini (ESP8266MOD) | ESP32-Board (ESP-WROOM-32, USB-C) |
 |---|---|---|
 | `+` | `3V3` | `3V3` |
-| `OUT` | `D2` = `GPIO4` | `GPIO21` (Vorschlag, am konkreten Board prüfen) |
+| `OUT` | `D2` = `GPIO4` | `GPIO21` (am ersten angeschlossenen Board mit realen Messungen geprüft) |
 | `−` | `G` / `GND` | `GND` |
 
 Beide Module ausschließlich an **3,3 V** anschließen. Nicht nach den Farben des mitgelieferten Kabels verdrahten: An der tatsächlichen Platine die Markierungen `+`, `OUT`, `−` ablesen und jeden Draht zu seinem Zielpin durchklingeln. Falls Stiftleisten fehlen, diese zuerst bei abgezogenem USB-Kabel einlöten. Vor dem Einstecken von USB `+` gegen `−` auf Kurzschluss und die `OUT`-Verbindung auf den richtigen GPIO prüfen. Nach dem Einschalten an `+` gegen `−` ungefähr 3,3 V messen.
@@ -22,7 +22,7 @@ Für den ersten USB-, Portal- und Sensortest **keine** zusätzliche Sleep-Brück
 
 ## 2. USB-Identität und seriellen Port prüfen
 
-Die Fotos zeigen ESP-WROOM-32-Module auf USB-C-Entwicklungsboards; Hersteller, exakte Devkit-Variante, USB-Seriell-Wandler und Flash-Größe sind nicht sicher lesbar. `esp32dev` ist daher ein **vorläufiges kompatibles PlatformIO-Buildprofil**, keine bestätigte Boardbezeichnung. Beim D1 mini ist `d1_mini` das vorgesehene PlatformIO-Boardprofil. Vor dem ESP32-Flashen USB-Erkennung, gemeldeten Chip und Flash-Größe mit der Boardbeschriftung und dem gewählten Flash-Layout abgleichen. Ein USB-C-Anschluss allein identifiziert weder den ESP32-Typ noch den Flash-Ausbau.
+Die Fotos zeigen ESP-WROOM-32-Module auf USB-C-Entwicklungsboards; Hersteller und exakte Devkit-Variante sind daraus nicht sicher lesbar. Das erste tatsächlich angeschlossene Board meldete einen **ESP32-D0WD-V3, Revision 3.1**, mit **40-MHz-Quarz** und **4 MB Flash**. Der USB-Seriell-Wandler ist ein **Silicon Labs CP2102** mit USB-ID `10c4:ea60`; auf dem geprüften Mac erschien `/dev/cu.SLAB_USBtoUART` (auch `/dev/cu.usbserial-0001`). Das generische PlatformIO-Profil `esp32dev` wurde auf diesem Board erfolgreich geflasht und ist dafür kompatibel. Es ist weiterhin **keine exakte Hersteller-/Devkit-Bezeichnung**. Diese Prüfung gilt nur für das angeschlossene Exemplar; jedes weitere Board vor dem Flashen ebenso identifizieren. Beim D1 mini ist `d1_mini` das vorgesehene PlatformIO-Boardprofil. Ein USB-C-Anschluss allein identifiziert weder den ESP32-Typ noch den Flash-Ausbau.
 
 Nacheinander nur **ein** Board mit einem datenfähigen USB-Kabel anschließen. Den neu auftauchenden Port vergleichen:
 
@@ -30,11 +30,11 @@ Nacheinander nur **ein** Board mit einem datenfähigen USB-Kabel anschließen. D
 pio device list
 # macOS ergänzend:
 ls /dev/cu.*
-PORT=/dev/cu.usbserial-0001  # durch den tatsächlich erkannten Port ersetzen
+PORT=/dev/cu.SLAB_USBtoUART  # durch den tatsächlich erkannten Port ersetzen
 esptool --port "$PORT" flash-id
 ```
 
-Auf macOS den Port `/dev/cu.*` statt `/dev/tty.*` für Upload und Monitor verwenden; unter Linux gewöhnlich `/dev/ttyUSB*` oder `/dev/ttyACM*`. `esptool` meldet Chip und Flash-Ausbau. Stimmen diese Angaben nicht mit dem gewählten Ziel überein, das Boardprofil **vor dem Upload** korrigieren. Ohne neu erkannten Port zuerst Kabel, USB-Hub und nötigen USB-Seriell-Treiber prüfen.
+Auf macOS den Port `/dev/cu.*` statt `/dev/tty.*` für Upload und Monitor verwenden; unter Linux gewöhnlich `/dev/ttyUSB*` oder `/dev/ttyACM*`. `esptool` meldet Chip und Flash-Ausbau. Stimmen diese Angaben nicht mit dem gewählten Ziel überein, das Boardprofil **vor dem Upload** korrigieren. Ohne neu erkannten Port zuerst Kabel, USB-Hub und nötigen USB-Seriell-Treiber prüfen. Beim geprüften Mac erschien der CP2102-Port erst nach Installation und Freigabe des offiziellen Silicon-Labs-CP210x-VCP-Treibers, einem Neustart von macOS und erneutem Anschließen des Boards. Falls macOS nach dem USB-Zubehör fragt, dessen Verbindung erlauben. Einen Treiber nur installieren, wenn der eigene Mac ihn benötigt.
 
 ## 3. Individuelles Setup-Passwort erzeugen, bauen und flashen
 
@@ -78,6 +78,8 @@ Bei noch offenen Messungen darf die Geräte-UID oder Messstellenkennung nicht ge
 Diese USB-Profile haben keinen Batterie-Messpfad. Sie melden die Fähigkeit `mains_power` und einen nicht verfügbaren Batteriewert (`battery_mv: null`); das Dashboard zeigt **Netzbetrieb/Batteriewert nicht verfügbar**, ohne einen Leere-Batterie-Alarm auszulösen. Bei Geräten mit echter Batteriemessung bleibt die Batterieanzeige erhalten.
 
 ## 5. Messung und Übertragung beobachten
+
+**Bisheriger Hardwaretest am ersten ESP32 (23.09.2026):** `+ → 3V3`, `OUT → GPIO21` und `− → GND` wurden verdrahtet. Ein temporärer DHT22-Sensortest las mit 2,5 Sekunden Abstand sechs gültige Werte von **24,4–24,5 °C** und **33,5–35,1 % rF**. Ohne zusätzlich gesteckten Pull-up funktionierte diese konkrete Verdrahtung; ob und welchen Pull-up die gekaufte Modulplatine bestückt hat, wurde nicht elektrisch verifiziert. Danach wurde die Produktionsfirmware wieder aufgespielt und ihr Start mit dem geschützten Einrichtungs-WLAN und dem lokalen Portal bei `http://192.168.4.1` seriell beobachtet. Das ist noch kein Nachweis für eine erfolgreiche Anmeldung an der HACCP-App, HTTPS-Übertragung, Offline-Warteschlange oder Deep Sleep.
 
 Im seriellen Monitor nach dem Start auf Sensorinitialisierung, gültige Temperatur und relative Luftfeuchtigkeit sowie den Warteschlangen-/Uploadstatus achten. Bei `NaN`, ungültigem Wertebereich oder wiederholtem DHT-Lesefehler Verkabelung, 3,3-V-Versorgung, Pull-up und Mindestabstand der Abfragen prüfen. Ein solcher Wert darf weder als gültige Messung in der Warteschlange noch im Dashboard auftauchen. Die erste DHT-Abfrage benötigt nach der Versorgung eine Anlaufzeit.
 
