@@ -152,7 +152,7 @@ See [`docs/SENSOR_PROTOCOL_V1.md`](docs/SENSOR_PROTOCOL_V1.md), [`docs/FIRMWARE_
 
 ## Demo fleet
 
-The optional profile provisions a refrigerator, freezer and milk-drink cooler. It uploads 12 historical values per unit once, then varies a value every five minutes. Keys, exact pending batches and counters remain only in `haccp-demo-state` and never in logs or Compose output.
+The optional profile provisions a refrigerator, freezer and milk-drink cooler. It uploads 12 historical values per unit once, then varies a value every five minutes. Keys, exact pending batches and counters remain only in `haccp-demo-state` and never in logs or Compose output. **Do not enable this profile on the hardware test server:** its synthetic readings would contaminate the real-device test fleet.
 
 ```bash
 docker compose --profile demo up -d --build
@@ -185,7 +185,7 @@ The first upload reports accepted records; the immediate resend reports duplicat
 The default bind is loopback-only `127.0.0.1:18082`. The VPS override joins only `app` to the existing external `proxy` network with alias `haccp-monitor`; Nginx Proxy Manager routes `haccp.pow24.org` to `haccp-monitor:80`, forces HTTPS and uses a public certificate. Worker, database and demo expose no public port.
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build app worker db demo
+docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build app worker db
 ```
 
 Before an upgrade, take a MariaDB backup. The persistent `haccp-media-data` volume must be included in the normal encrypted VPS backup alongside MariaDB. Apply additive migrations, then start the app and worker; no additional public port or Nginx Proxy Manager route is needed because authenticated photo delivery uses the existing HTTPS host.
