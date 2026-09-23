@@ -134,6 +134,7 @@ private:
     bool operationalLoaded_ = false;
     bool loadQueue();
     bool saveQueue();
+    void clearInMemoryQueue();
     void recordStorageFailure();
     void ensureOperationalLoaded();
     bool saveOperational();

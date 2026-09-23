@@ -379,7 +379,8 @@ void DeviceState::markTelemetryDelivered()
     operational_.uploadFailuresSinceReport = 0;
     operational_.maxConsecutiveWifiFailures = 0;
     operational_.sleepFallbacksSinceReport = 0;
-    operational_.diagnosticFlags = queueLoaded_ && !queueHealthy_ ? DiagnosticStorageFailed : 0;
+    operational_.diagnosticFlags = queueLoaded_ && !queueHealthy_
+        ? static_cast<uint32_t>(DiagnosticStorageFailed) : 0U;
     saveOperational();
 }
 
@@ -436,7 +437,7 @@ bool DeviceState::loadQueue()
             const bool provisioned = provisioning.getBool("ready", false);
             provisioning.end();
             if (!provisioned) {
-                queue_ = QueueState{};
+                clearInMemoryQueue();
                 queueHealthy_ = saveQueue();
             }
         }
@@ -456,6 +457,17 @@ bool DeviceState::saveQueue()
     const bool saved = preferences.putBytes("queue", &queue_, sizeof(queue_)) == sizeof(queue_);
     preferences.end();
     return saved;
+}
+
+void DeviceState::clearInMemoryQueue()
+{
+    queue_.magic = 0x48414351;
+    queue_.version = 1;
+    queue_.count = 0;
+    queue_.nextSequence = 1;
+    for (PendingMeasurement &item : queue_.items) {
+        item = PendingMeasurement{};
+    }
 }
 
 bool DeviceState::enqueue(int64_t measuredAt, float temperatureC, float humidityRh, uint16_t batteryMv)
@@ -552,7 +564,7 @@ void DeviceState::factoryReset()
             preferences.end();
         }
     }
-    queue_ = QueueState{};
+    clearInMemoryQueue();
     queueLoaded_ = false;
     queueHealthy_ = false;
     operational_ = OperationalState{};
