@@ -7,6 +7,7 @@ const state = { device: '', point: '', hours: 24, data: null, initialized: false
 const photoAccept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
 let context;
 let photoUploadInProgress = false;
+let loadSequence = 0;
 
 export const overviewView = {
   init(app) {
@@ -24,14 +25,19 @@ export const overviewView = {
   load,
 };
 
-async function load() {
+async function load({ revealDevice = false } = {}) {
+  const sequence = ++loadSequence;
   const params = new URLSearchParams({ hours: String(state.hours) });
   if (state.device) params.set('device', state.device);
   if (state.point) params.set('point', state.point);
-  const data = await api(`/api/v1/dashboard/overview?${params}`);
+  let data;
+  try { data = await api(`/api/v1/dashboard/overview?${params}`); }
+  catch (error) { if (sequence !== loadSequence) return; throw error; }
+  if (sequence !== loadSequence) return;
   state.data = data; state.device = data.selection?.device_uid || ''; state.point = data.selection?.measurement_point || '';
   context.devices = data.devices;
   render();
+  if (revealDevice) revealSelectedDevice();
 }
 
 function render() {
@@ -74,7 +80,7 @@ function renderFocus() {
   const photoActions = canUploadPhoto ? `<label class="secondary-button file-button">Foto aufnehmen<input type="file" data-photo-upload accept="${photoAccept}" capture="environment" aria-label="Foto aufnehmen"></label><label class="secondary-button file-button">Bild auswählen<input type="file" data-photo-upload accept="${photoAccept}" aria-label="Bild auswählen"></label>` : '';
   const delivery = device.configuration_delivery || {};
   const deliveryLabel = delivery.up_to_date ? `Übernommen · v${delivery.applied_version}` : delivery.applied_version ? `Ausstehend · v${delivery.applied_version}/${delivery.current_version}` : 'Noch nicht bestätigt';
-  document.querySelector('#device-focus').innerHTML = `${photoMarkup}<div><p class="eyebrow">Ausgewählte Messstelle</p><h2>${escapeHtml(device.name)}</h2><p>${escapeHtml(point?.name || device.device_uid)}${point?.location ? ` · ${escapeHtml(point.location)}` : ''}</p><div class="focus-reading"><strong>${formatNumber(kpi.latest_temperature_c, ' °C')}</strong><span>${escapeHtml(alarmLabel(kpi.alarm_status))} · Bereich ${formatNumber(settings?.alarm?.temperature_min_c)} bis ${formatNumber(settings?.alarm?.temperature_max_c)} °C</span></div></div><div class="focus-status"><div><span>Stromversorgung</span><strong>${powerLabel(device.battery)}</strong></div><div><span>Funksignal</span><strong>${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</strong></div><div><span>Firmware</span><strong>${escapeHtml(device.firmware_version || '–')}</strong></div><div><span>Konfiguration</span><strong>${escapeHtml(deliveryLabel)}</strong></div><div><span>Letzte Verbindung</span><strong>${formatDate(device.last_seen_at)}</strong></div></div><div class="focus-actions">${photoActions}${photo ? '<button class="secondary-button" id="photo-history" type="button">Bildverlauf</button>' : ''}<button class="secondary-button" id="device-diagnostics" type="button">Geräteinformationen</button>${context.user.role !== 'auditor' ? `<button class="secondary-button" id="device-identity" type="button">Namen & Ort</button><button class="secondary-button" id="device-settings" type="button">Grenzwerte & Takt</button>${['battery', 'battery_unmonitored'].includes(device.battery.power_source) ? '<button class="secondary-button" id="battery-replaced" type="button">Batterie gewechselt</button>' : ''}` : ''}</div>`;
+  document.querySelector('#device-focus').innerHTML = `${photoMarkup}<div><p class="eyebrow">Ausgewählte Messstelle</p><h2 id="selected-device-heading" tabindex="-1">${escapeHtml(device.name)}</h2><p>${escapeHtml(point?.name || device.device_uid)}${point?.location ? ` · ${escapeHtml(point.location)}` : ''}</p><div class="focus-reading"><strong>${formatNumber(kpi.latest_temperature_c, ' °C')}</strong><span>${escapeHtml(alarmLabel(kpi.alarm_status))} · Bereich ${formatNumber(settings?.alarm?.temperature_min_c)} bis ${formatNumber(settings?.alarm?.temperature_max_c)} °C</span></div></div><div class="focus-status"><div><span>Stromversorgung</span><strong>${powerLabel(device.battery)}</strong></div><div><span>Funksignal</span><strong>${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</strong></div><div><span>Firmware</span><strong>${escapeHtml(device.firmware_version || '–')}</strong></div><div><span>Konfiguration</span><strong>${escapeHtml(deliveryLabel)}</strong></div><div><span>Letzte Verbindung</span><strong>${formatDate(device.last_seen_at)}</strong></div></div><div class="focus-actions">${photoActions}${photo ? '<button class="secondary-button" id="photo-history" type="button">Bildverlauf</button>' : ''}<button class="secondary-button" id="device-diagnostics" type="button">Geräteinformationen</button>${context.user.role !== 'auditor' ? `<button class="secondary-button" id="device-identity" type="button">Namen & Ort</button><button class="secondary-button" id="device-settings" type="button">Grenzwerte & Takt</button>${['battery', 'battery_unmonitored'].includes(device.battery.power_source) ? '<button class="secondary-button" id="battery-replaced" type="button">Batterie gewechselt</button>' : ''}` : ''}</div>`;
   document.querySelector('#focus-photo')?.addEventListener('click', photoHistoryDialog);
   document.querySelector('#photo-history')?.addEventListener('click', photoHistoryDialog);
   document.querySelectorAll('[data-photo-upload]').forEach((input) => input.addEventListener('change', (event) => {
@@ -89,8 +95,53 @@ function renderFocus() {
 }
 
 function renderDevices() {
-  document.querySelector('#device-table').innerHTML = state.data.devices.map((device) => `<tr data-uid="${escapeHtml(device.device_uid)}"><td data-label="Gerät"><div class="device-cell">${device.photo ? `<img src="${escapeHtml(device.photo.thumbnail_url)}" alt="">` : '<span class="device-thumb-empty" aria-hidden="true"></span>'}<span><strong>${escapeHtml(device.name)}</strong><small>${escapeHtml(device.device_uid)}</small></span></div></td><td data-label="Temperatur">${formatNumber(device.latest_temperature_c, ' °C')}</td><td data-label="Alarm">${statusPill(alarmLabel(device.alarm.state), ['below_min','above_max'].includes(device.alarm.state) ? 'critical' : device.alarm.state)}</td><td data-label="Versorgung">${powerLabel(device.battery)}</td><td data-label="Signal">${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</td><td data-label="Verbindung">${formatDate(device.last_seen_at)}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="6">Keine aktiven Geräte.</td></tr>';
-  document.querySelectorAll('#device-table tr[data-uid]').forEach((row) => row.addEventListener('click', () => { state.device = row.dataset.uid; state.point = ''; load(); }));
+  document.querySelector('#device-table').innerHTML = state.data.devices.map((device) => {
+    const selected = device.device_uid === state.device;
+    return `<tr data-uid="${escapeHtml(device.device_uid)}" class="${selected ? 'is-selected' : ''}"><td data-label="Gerät"><button class="device-select-button" type="button" aria-current="${selected ? 'true' : 'false'}" aria-label="${escapeHtml(device.name)}: Details und Einstellungen anzeigen"><span class="device-cell">${device.photo ? `<img src="${escapeHtml(device.photo.thumbnail_url)}" alt="">` : '<span class="device-thumb-empty" aria-hidden="true"></span>'}<span><strong>${escapeHtml(device.name)}</strong><small>${escapeHtml(device.device_uid)}</small><span class="device-select-hint" aria-live="polite">${selected ? 'Ausgewählt · Details ansehen' : 'Details und Einstellungen ansehen'} →</span></span></span></button></td><td data-label="Temperatur">${formatNumber(device.latest_temperature_c, ' °C')}</td><td data-label="Alarm">${statusPill(alarmLabel(device.alarm.state), ['below_min','above_max'].includes(device.alarm.state) ? 'critical' : device.alarm.state)}</td><td data-label="Versorgung">${powerLabel(device.battery)}</td><td data-label="Signal">${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</td><td data-label="Verbindung">${formatDate(device.last_seen_at)}</td></tr>`;
+  }).join('') || '<tr class="empty-row"><td colspan="6">Keine aktiven Geräte.</td></tr>';
+  document.querySelectorAll('#device-table tr[data-uid]').forEach((row) => row.addEventListener('click', () => selectDevice(row.dataset.uid)));
+}
+
+function markDeviceSelection(uid, loading = false) {
+  document.querySelectorAll('#device-table tr[data-uid]').forEach((row) => {
+    const selected = row.dataset.uid === uid;
+    row.classList.toggle('is-selected', selected);
+    row.classList.toggle('is-loading', selected && loading);
+    row.querySelector('button').setAttribute('aria-current', String(selected));
+    row.querySelector('.device-select-hint').textContent = selected && loading
+      ? 'Wird geladen …'
+      : selected ? 'Ausgewählt · Details ansehen →' : 'Details und Einstellungen ansehen →';
+  });
+}
+
+function revealSelectedDevice() {
+  if (!window.matchMedia('(max-width: 760px)').matches) return;
+  if (document.querySelector('[data-view="overview"]')?.hidden) return;
+  const heading = document.querySelector('#selected-device-heading');
+  heading?.focus({ preventScroll: true });
+  heading?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+}
+
+async function selectDevice(uid) {
+  if (uid === state.data?.selection?.device_uid) {
+    ++loadSequence;
+    state.device = uid; state.point = state.data.selection.measurement_point || '';
+    markDeviceSelection(uid);
+    revealSelectedDevice();
+    return;
+  }
+  const previousDevice = state.data?.selection?.device_uid || '';
+  const previousPoint = state.data?.selection?.measurement_point || '';
+  state.device = uid; state.point = '';
+  markDeviceSelection(uid, true);
+  const sequence = loadSequence + 1;
+  try { await load({ revealDevice: true }); }
+  catch (error) {
+    if (sequence !== loadSequence) return;
+    state.device = previousDevice; state.point = previousPoint;
+    markDeviceSelection(previousDevice);
+    context.showMessage(error.message);
+  }
 }
 
 function renderRecent() {

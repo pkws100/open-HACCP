@@ -178,6 +178,13 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-strong); 
 .device-cell { display: flex; align-items: center; gap: 11px; min-width: 190px; }
 .device-cell img, .device-thumb-empty { width: 54px; height: 40px; flex: 0 0 auto; border-radius: 7px; object-fit: cover; background: var(--surface-3); }
 .device-thumb-empty { border: 1px dashed var(--line); }
+#device-table tr[data-uid] { cursor: pointer; }
+#device-table tr.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 var(--accent); }
+.device-select-button { width: 100%; border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.device-select-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+.device-select-hint { display: block; margin-top: 5px; color: var(--accent); font-size: 10px; font-weight: 650; }
+#selected-device-heading { scroll-margin-top: 88px; }
+#selected-device-heading:focus { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 3px; }
 
 .status-pill { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; color: var(--muted); font-size: 11px; }
 .status-pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
@@ -314,6 +321,7 @@ legend { color: var(--muted); font-size: 11px; padding: 0 6px; }
   .data-section thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
   .data-section tbody { display: grid; gap: 10px; }
   .data-section tbody tr { padding: 8px 12px; border: 1px solid var(--line-soft); border-radius: 11px; background: var(--surface); }
+  #device-table tr.is-selected { border-color: var(--accent-strong); background: var(--accent-soft); }
   .data-section tbody td { display: grid; grid-template-columns: minmax(88px, .42fr) minmax(0, .58fr); gap: 12px; padding: 9px 0; border-top: 1px solid var(--line-soft); text-align: right; overflow-wrap: anywhere; }
   .data-section tbody td:first-child { border-top: 0; }.data-section tbody td::before { content: attr(data-label); color: var(--faint); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-align: left; text-transform: uppercase; }
   .data-section tbody td > * { justify-self: end; }.data-section .device-cell { justify-self: stretch; justify-content: flex-end; min-width: 0; }.data-section .empty-row { padding: 0; }.data-section .empty-row td { display: block; padding: 22px 10px; text-align: center; }.data-section .empty-row td::before { content: none; }
