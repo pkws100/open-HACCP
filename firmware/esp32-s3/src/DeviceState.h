@@ -55,6 +55,8 @@ enum DiagnosticFlag : uint32_t {
     DiagnosticConfigRejected = 1U << 5,
     DiagnosticAckIncomplete = 1U << 6,
     DiagnosticSleepFallback = 1U << 7,
+    DiagnosticDhtReadFailedRepeated = 1U << 8,
+    DiagnosticStorageFailed = 1U << 9,
 };
 
 struct OperationalState {
@@ -74,7 +76,7 @@ struct OperationalState {
     uint8_t retryStep = 0;
     ConfigApplyStatus configStatus = ConfigApplyStatus::Default;
     SleepMode lastSleepMode = SleepMode::None;
-    uint8_t reserved2 = 0;
+    uint8_t retrySleepPending = 0;
     uint32_t appliedConfigVersion = 0;
 };
 
@@ -96,6 +98,8 @@ public:
     void recordTransportFailure();
     void recordClockSyncFailure();
     void recordSensorUnavailable();
+    void recordDhtReadFailure();
+    void recordDhtReadSuccess();
     void recordQueueFull();
     void recordAckIncomplete();
     void recordConfigApplied(uint32_t version);
@@ -104,12 +108,14 @@ public:
     void recordSleepFallback(SleepMode fallbackMode);
     void scheduleNetworkRetry(int64_t now, uint32_t delaySeconds);
     void clearNetworkRetry();
+    void consumeNoClockRetryPause();
     void markTelemetryDelivered();
     size_t diagnosticCodes(const char **codes, size_t capacity) const;
     bool enqueue(int64_t measuredAt, float temperatureC, float humidityRh, uint16_t batteryMv);
     size_t pendingCount() const;
     const PendingMeasurement *pendingItems() const;
-    void acknowledge(const uint64_t *sequences, size_t sequenceCount);
+    bool queueHealthy() const;
+    bool acknowledge(const uint64_t *sequences, size_t sequenceCount);
     uint32_t incrementBootCount();
     void factoryReset();
 
@@ -123,10 +129,12 @@ private:
     } queue_;
 
     bool queueLoaded_ = false;
+    bool queueHealthy_ = false;
     OperationalState operational_{};
     bool operationalLoaded_ = false;
-    void loadQueue();
+    bool loadQueue();
     bool saveQueue();
+    void recordStorageFailure();
     void ensureOperationalLoaded();
     bool saveOperational();
 };

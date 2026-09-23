@@ -1,6 +1,6 @@
 import { api } from '../api.js?v=20260810-1';
 import { accessibleTable, barChart, lineChart, chartColor, observeChartResize } from '../charts.js?v=20260812-1';
-import { escapeHtml, formatNumber, metric } from '../format.js?v=20260810-1';
+import { escapeHtml, formatNumber, metric } from '../format.js?v=20260923-1';
 
 const state = { days: 30, device: '', point: '', data: null, initialized: false };
 let context;
@@ -72,7 +72,7 @@ function render() {
   document.querySelector('#battery-eta').textContent = battery.status === 'estimated' ? `≈ ${battery.estimated_days_remaining} Tage` : '–';
   document.querySelector('#battery-note').textContent = battery.status === 'estimated'
     ? `${formatNumber(battery.slope_mv_per_day, ' mV/Tag')} · Konfidenz ${({ low: 'niedrig', medium: 'mittel', high: 'hoch' })[battery.confidence]}`
-    : battery.status === 'device_required' ? 'Für eine Batterieprognose bitte ein einzelnes Gerät auswählen.' : 'Noch keine belastbare Prognose. Erforderlich sind mindestens 20 Werte über sieben Tage mit fallendem Trend.';
+    : battery.status === 'device_required' ? 'Für eine Batterieprognose bitte ein einzelnes Gerät auswählen.' : battery.status === 'unavailable' ? 'Batteriewert nicht verfügbar.' : 'Noch keine belastbare Prognose. Erforderlich sind mindestens 20 Werte über sieben Tage mit fallendem Trend.';
   const batterySeries = (battery.series || []).map((row) => ({ at: row.at, value: row.mv }));
   const thresholdSeries = battery.low_threshold_mv && batterySeries.length ? batterySeries.map((row) => ({ at: row.at, value: battery.low_threshold_mv })) : [];
   lineChart(document.querySelector('#analysis-battery'), [

@@ -150,3 +150,9 @@ Configuration is operational and non-secret. It can change cadence and alarms, b
 - Documentation clearly separates software-implemented behavior from hardware-measured and production-certified evidence.
 
 Firmware handoff ready: **YES**. The first power-managed software implementation, backend and machine-readable contract agree. Hardware release ready remains **NO** until the remaining bench, calibration, power-loss, storage-encryption and security gates above have recorded evidence.
+
+## Additional DHT22 USB targets
+
+The new ESP-WROOM-32/DHT22 and ESP8266 D1 mini/DHT22 implementations use separate PlatformIO environments and firmware binaries; see [`DHT22_INBETRIEBNAHME.md`](DHT22_INBETRIEBNAHME.md). They preserve Sensor Protocol V1 and report `battery_mv: null` plus `mains_power` because no battery divider is connected. The original ESP32-S3/SHT45 build remains a distinct profile with its original sensor identity and battery fallback behavior.
+
+Software builds and host/backend tests establish only compile-time and logic evidence. On the photographed hardware, the ESP32 USB-UART bridge and flash size, DHT module pull-up, actual GPIO21 routing, sensor readings, HTTPS handshake, long outage recovery, and sleep wake cycles still require a bench test. For the D1 mini, explicitly test the D0/GPIO16-to-RST timer wake bridge before enabling the sleep build. The queue capacities of 64 (ESP32) and 32 (D1 mini) are bench limits, not a promised offline duration.

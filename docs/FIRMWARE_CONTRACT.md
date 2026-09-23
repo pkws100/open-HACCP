@@ -85,11 +85,13 @@ sequence          : positive int64, monotonic for this measurement point
 measured_at       : UTC timestamp
 temperature_c     : number, -100..150
 humidity_rh       : number, 0..100
-battery_mv        : integer, 0..10000
+battery_mv        : integer, 0..10000, or JSON null when no battery measurement exists
 upload_state      : pending | acknowledged
 ```
 
 Sequence state must survive reset and deep sleep. Never reuse a sequence for changed data. A batch may contain more than one measurement point, but sequences are independent per point. The current ESP32-S3/SHT45 build represents one provisioned physical point, selects that point's effective server interval, compiles a 64-record durable queue, and caps a server-provided larger batch size at 64; another client may support more physical points or a different lower compiled maximum than the protocol limit.
+
+For a USB-powered board without battery sensing, preserve `battery_mv: null` in each stored measurement and send the same explicit JSON null in batch diagnostics or heartbeat telemetry. Include `mains_power` and omit `battery` in `device_info.capabilities`. Never substitute 0 or a guessed voltage. A board with real battery measurement continues to send its measured integer.
 
 Durably store the current config and applied-version acknowledgement, effective interval for every supported physical point, last sample/upload/config-check and retry deadlines, retry counters, boot counter, monotonic sequences, pending queue and stable failure flags. Wake/reset must reconstruct the same pending records and deadlines. The checked-in power-managed reference persists these domains in NVS. A production firmware must still size storage for the selected offline guarantee and complete destructive power-loss/A-B or journal recovery tests; 64 records are not sufficient for every interval, upload cadence and outage duration.
 

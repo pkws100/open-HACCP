@@ -58,7 +58,7 @@ final readonly class AnalysisService
                 'measured_at' => $row['measured_at'],
                 'temperature_c' => (float) $row['temperature_c'],
                 'humidity_rh' => (float) $row['humidity_rh'],
-                'battery_mv' => (int) $row['battery_mv'],
+                'battery_mv' => $row['battery_mv'] === null ? null : (int) $row['battery_mv'],
                 'device_uid' => $row['device_uid'],
                 'point_code' => $row['point_code'],
             ], $measurements),
@@ -78,6 +78,10 @@ final readonly class AnalysisService
         if ($measurements === []) {
             return ['status' => 'insufficient_data', 'estimated_days_remaining' => null, 'confidence' => null, 'series' => []];
         }
+        $batteryMeasurements = array_values(array_filter($measurements, static fn (array $row): bool => $row['battery_mv'] !== null));
+        if ($batteryMeasurements === []) {
+            return ['status' => 'unavailable', 'estimated_days_remaining' => null, 'confidence' => null, 'series' => []];
+        }
         $deviceId = (int) end($measurements)['device_id'];
         $cycle = $this->events->latestBatteryCycle($deviceId);
         if ($cycle !== null && !(bool) $cycle['forecast_enabled']) {
@@ -86,7 +90,7 @@ final readonly class AnalysisService
         $cycleStart = $cycle['started_at'] ?? null;
         $cutoff = $this->clock->now()->modify('-30 days')->getTimestamp();
         $points = [];
-        foreach ($measurements as $row) {
+        foreach ($batteryMeasurements as $row) {
             if ($deviceUid !== null && $row['device_uid'] !== $deviceUid) {
                 continue;
             }

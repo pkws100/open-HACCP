@@ -7,6 +7,7 @@
 #include <time.h>
 
 #include "FirmwareConfig.h"
+#include "AckCorrelation.h"
 #include "RootCertificate.h"
 
 namespace {
@@ -110,7 +111,11 @@ bool HaccpClient::sendHeartbeat(
     document["protocol_version"] = 1;
     document["firmware_version"] = OPEN_HACCP_FIRMWARE_VERSION;
     document["hardware_revision"] = OPEN_HACCP_HARDWARE_REVISION;
-    document["battery_mv"] = diagnostics.batteryMv;
+    if (diagnostics.batteryMv == UINT16_MAX) {
+        document["battery_mv"] = nullptr;
+    } else {
+        document["battery_mv"] = diagnostics.batteryMv;
+    }
     document["rssi_dbm"] = diagnostics.rssiDbm;
     document["wifi_connect_ms"] = diagnostics.wifiConnectMs;
     document["boot_count"] = diagnostics.bootCount;
@@ -185,7 +190,11 @@ bool HaccpClient::uploadMeasurements(
     document["hardware_revision"] = OPEN_HACCP_HARDWARE_REVISION;
     document["sent_at"] = utcTimestamp(time(nullptr));
     JsonObject diagnosticObject = document["diagnostics"].to<JsonObject>();
-    diagnosticObject["battery_mv"] = diagnostics.batteryMv;
+    if (diagnostics.batteryMv == UINT16_MAX) {
+        diagnosticObject["battery_mv"] = nullptr;
+    } else {
+        diagnosticObject["battery_mv"] = diagnostics.batteryMv;
+    }
     diagnosticObject["rssi_dbm"] = diagnostics.rssiDbm;
     diagnosticObject["wifi_connect_ms"] = diagnostics.wifiConnectMs;
     diagnosticObject["boot_count"] = diagnostics.bootCount;
@@ -198,7 +207,11 @@ bool HaccpClient::uploadMeasurements(
         measurement["measured_at"] = utcTimestamp(items[index].measuredAt);
         measurement["temperature_c"] = roundf(items[index].temperatureC * 1000.0F) / 1000.0F;
         measurement["humidity_rh"] = roundf(items[index].humidityRh * 1000.0F) / 1000.0F;
-        measurement["battery_mv"] = items[index].batteryMv;
+        if (items[index].batteryMv == UINT16_MAX) {
+            measurement["battery_mv"] = nullptr;
+        } else {
+            measurement["battery_mv"] = items[index].batteryMv;
+        }
     }
     String body;
     serializeJson(document, body);
@@ -220,13 +233,22 @@ bool HaccpClient::uploadMeasurements(
         return false;
     }
     reportedConfigVersion = responseDocument["config_version"] | runtime.configVersion;
+    bool seen[DeviceState::QueueCapacity]{};
+    bool rejected[DeviceState::QueueCapacity]{};
+    for (JsonObjectConst rejection : responseDocument["rejections"].as<JsonArrayConst>()) {
+        const size_t index = rejection["index"] | itemCount;
+        if (index < itemCount && (rejection["sequence"] | 0ULL) == items[index].sequence
+            && provisioning.measurementPoint == (rejection["measurement_point"] | "")) {
+            rejected[index] = true;
+        }
+    }
     for (JsonObject acknowledgement : responseDocument["acknowledgements"].as<JsonArray>()) {
         const char *statusValue = acknowledgement["status"] | "";
         const uint64_t sequence = acknowledgement["sequence"] | 0ULL;
         const char *point = acknowledgement["measurement_point"] | "";
         const size_t index = acknowledgement["index"] | itemCount;
-        if (index < itemCount && sequence == items[index].sequence && provisioning.measurementPoint == point
-            && (strcmp(statusValue, "accepted") == 0 || strcmp(statusValue, "duplicate") == 0)) {
+        if (correlateAcknowledgement(index, sequence, point, statusValue, items, itemCount,
+            provisioning.measurementPoint.c_str(), seen, rejected)) {
             acknowledgedSequences[acknowledgedCount++] = sequence;
         }
     }
@@ -321,9 +343,10 @@ void HaccpClient::addDeviceStatus(JsonDocument &document, const DeviceDiagnostic
     info["sensor_status"] = diagnostics.sensorReady ? "ready" : "unavailable";
     info["queue_capacity"] = DeviceState::QueueCapacity;
     JsonArray capabilities = info["capabilities"].to<JsonArray>();
-    for (const char *capability : {"temperature", "humidity", "battery", "wifi_rssi", "deep_sleep", "remote_config", "provisioning_ap"}) {
+    for (const char *capability : {"temperature", "humidity", "wifi_rssi", "deep_sleep", "remote_config", "provisioning_ap"}) {
         capabilities.add(capability);
     }
+    capabilities.add(diagnostics.batteryMv == UINT16_MAX ? "mains_power" : "battery");
 
     JsonObject status = document["operational_status"].to<JsonObject>();
     status["provisioned"] = true;

@@ -24,13 +24,15 @@ The device key contains 32 random bytes encoded as 64 hexadecimal characters. Th
 |---|---|---|
 | `temperature_c` | number | degrees Celsius, -100 through 150 |
 | `humidity_rh` | number | percent relative humidity, 0 through 100 |
-| `battery_mv` | integer | millivolts, 0 through 10000 |
+| `battery_mv` | integer or `null` | millivolts, 0 through 10000 when measured; `null` when unavailable |
 | `rssi_dbm` | integer | dBm, -120 through 0 |
 | `wifi_connect_ms` | integer | milliseconds, 0 through 120000 |
 | `boot_count` | integer | 0 through 4294967295 |
 | `sequence` | integer | 1 through signed 64-bit maximum |
 
 These limits detect technical errors and are not HACCP alarm thresholds. Batch metadata, diagnostics, and heartbeat objects may contain new metadata fields. Measurement objects are strict: unknown fields reject that individual measurement.
+
+`battery_mv` remains a required key in measurements, batch diagnostics, and heartbeats. USB-powered boards without a battery sensor send JSON `null` in all three locations, never an estimated voltage or `0` as a missing-value marker. Their `device_info.capabilities` includes `mains_power` and omits `battery`. The backend stores `NULL`, displays **Netzbetrieb · Batteriewert nicht verfügbar**, excludes these readings from battery forecasts, and does not raise a low-battery event. Older firmware that sends a measured integer remains valid. A `null` value without `mains_power` means only that the battery value is unavailable; it does not claim mains power.
 
 ## Optional firmware identity and operational state
 

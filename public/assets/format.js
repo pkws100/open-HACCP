@@ -43,6 +43,12 @@ export function batteryIcon(state) {
   return `<span class="battery-icon ${escapeHtml(state || 'unknown')}" aria-label="Batterie ${escapeHtml(state || 'unbekannt')}"><i></i><i></i><i></i></span>`;
 }
 
+export function powerLabel(battery) {
+  if (battery?.power_source === 'mains') return 'Netzbetrieb · Batteriewert nicht verfügbar';
+  if (battery?.millivolts == null) return 'Batteriewert nicht verfügbar';
+  return `${batteryIcon(battery.state)} ${formatNumber(battery.millivolts, ' mV')}`;
+}
+
 export function signalIcon(bars) {
   return `<span class="signal-icon bars-${Number(bars || 0)}" aria-label="Signal ${bars == null ? 'unbekannt' : `${bars} von 4 Balken`}"><i></i><i></i><i></i><i></i></span>`;
 }

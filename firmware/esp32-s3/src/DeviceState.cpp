@@ -67,6 +67,21 @@ bool DeviceState::saveProvisioning(const ProvisioningConfig &config)
     if (!config.isValid()) {
         return false;
     }
+    // Create the durable empty queue before marking the device provisioned.
+    // A provisioned device with a missing or damaged queue must never start
+    // again at sequence 1 and silently discard unacknowledged measurements.
+    if (!loadQueue()) {
+        return false;
+    }
+    if (queue_.count > 0) {
+        ProvisioningConfig previous;
+        if (!loadProvisioning(previous) || previous.deviceUid != config.deviceUid
+            || previous.measurementPoint != config.measurementPoint) {
+            // Queued records do not carry an independent UID/point. Never
+            // attribute historical samples to a newly provisioned identity.
+            return false;
+        }
+    }
     Preferences preferences;
     if (!preferences.begin(ProvisioningNamespace, false)) {
         return false;
@@ -197,6 +212,7 @@ void DeviceState::recordTransmissionSuccess(int64_t epoch)
     operational_.lastSuccessfulTransmissionAt = epoch;
     operational_.nextNetworkAttemptAt = 0;
     operational_.retryStep = 0;
+    operational_.retrySleepPending = 0;
     saveOperational();
 }
 
@@ -249,10 +265,43 @@ void DeviceState::recordSensorUnavailable()
     saveOperational();
 }
 
+void DeviceState::recordDhtReadFailure()
+{
+    ensureOperationalLoaded();
+    Preferences preferences;
+    if (preferences.begin(OperationalNamespace, false)) {
+        const uint32_t failures = preferences.getUInt("dht_failures", 0);
+        const uint32_t next = failures == UINT32_MAX ? failures : failures + 1;
+        preferences.putUInt("dht_failures", next);
+        preferences.end();
+        if (next >= 3) {
+            operational_.diagnosticFlags |= DiagnosticDhtReadFailedRepeated;
+        }
+    }
+    operational_.diagnosticFlags |= DiagnosticSensorUnavailable;
+    saveOperational();
+}
+
+void DeviceState::recordDhtReadSuccess()
+{
+    Preferences preferences;
+    if (preferences.begin(OperationalNamespace, false)) {
+        preferences.putUInt("dht_failures", 0);
+        preferences.end();
+    }
+}
+
 void DeviceState::recordQueueFull()
 {
     ensureOperationalLoaded();
     operational_.diagnosticFlags |= DiagnosticQueueFull;
+    saveOperational();
+}
+
+void DeviceState::recordStorageFailure()
+{
+    ensureOperationalLoaded();
+    operational_.diagnosticFlags |= DiagnosticStorageFailed;
     saveOperational();
 }
 
@@ -300,6 +349,7 @@ void DeviceState::scheduleNetworkRetry(int64_t now, uint32_t delaySeconds)
 {
     ensureOperationalLoaded();
     operational_.nextNetworkAttemptAt = now + delaySeconds;
+    operational_.retrySleepPending = now == 1704067200 ? 1 : 0;
     if (operational_.retryStep < 4) {
         ++operational_.retryStep;
     }
@@ -311,6 +361,14 @@ void DeviceState::clearNetworkRetry()
     ensureOperationalLoaded();
     operational_.nextNetworkAttemptAt = 0;
     operational_.retryStep = 0;
+    operational_.retrySleepPending = 0;
+    saveOperational();
+}
+
+void DeviceState::consumeNoClockRetryPause()
+{
+    ensureOperationalLoaded();
+    operational_.retrySleepPending = 0;
     saveOperational();
 }
 
@@ -321,7 +379,7 @@ void DeviceState::markTelemetryDelivered()
     operational_.uploadFailuresSinceReport = 0;
     operational_.maxConsecutiveWifiFailures = 0;
     operational_.sleepFallbacksSinceReport = 0;
-    operational_.diagnosticFlags = 0;
+    operational_.diagnosticFlags = queueLoaded_ && !queueHealthy_ ? DiagnosticStorageFailed : 0;
     saveOperational();
 }
 
@@ -337,6 +395,8 @@ size_t DeviceState::diagnosticCodes(const char **codes, size_t capacity) const
         {DiagnosticConfigRejected, "CONFIG_REJECTED"},
         {DiagnosticAckIncomplete, "ACK_INCOMPLETE"},
         {DiagnosticSleepFallback, "DEEP_SLEEP_FALLBACK"},
+        {DiagnosticDhtReadFailedRepeated, "DHT_READ_FAILED_REPEATED"},
+        {DiagnosticStorageFailed, "STORAGE_FAILED"},
     };
     size_t count = 0;
     for (const auto &mapping : mappings) {
@@ -347,24 +407,44 @@ size_t DeviceState::diagnosticCodes(const char **codes, size_t capacity) const
     return count;
 }
 
-void DeviceState::loadQueue()
+bool DeviceState::loadQueue()
 {
     if (queueLoaded_) {
-        return;
+        return queueHealthy_;
     }
+    queueLoaded_ = true;
     Preferences preferences;
+    size_t storedLength = 0;
+    bool queueKeyPresent = false;
     if (preferences.begin(QueueNamespace, true)) {
-        if (preferences.getBytesLength("queue") == sizeof(queue_)) {
+        queueKeyPresent = preferences.isKey("queue");
+        storedLength = preferences.getBytesLength("queue");
+        if (storedLength == sizeof(queue_)) {
             QueueState stored;
             if (preferences.getBytes("queue", &stored, sizeof(stored)) == sizeof(stored)
                 && stored.magic == queue_.magic && stored.version == queue_.version
                 && stored.count <= QueueCapacity && stored.nextSequence > 0) {
                 queue_ = stored;
+                queueHealthy_ = true;
             }
         }
         preferences.end();
     }
-    queueLoaded_ = true;
+    if (!queueHealthy_ && !queueKeyPresent && storedLength == 0) {
+        Preferences provisioning;
+        if (provisioning.begin(ProvisioningNamespace, false)) {
+            const bool provisioned = provisioning.getBool("ready", false);
+            provisioning.end();
+            if (!provisioned) {
+                queue_ = QueueState{};
+                queueHealthy_ = saveQueue();
+            }
+        }
+    }
+    if (!queueHealthy_) {
+        recordStorageFailure();
+    }
+    return queueHealthy_;
 }
 
 bool DeviceState::saveQueue()
@@ -380,7 +460,9 @@ bool DeviceState::saveQueue()
 
 bool DeviceState::enqueue(int64_t measuredAt, float temperatureC, float humidityRh, uint16_t batteryMv)
 {
-    loadQueue();
+    if (!loadQueue()) {
+        return false;
+    }
     if (queue_.count >= QueueCapacity) {
         return false;
     }
@@ -393,6 +475,7 @@ bool DeviceState::enqueue(int64_t measuredAt, float temperatureC, float humidity
     if (!saveQueue()) {
         queue_.count--;
         queue_.nextSequence--;
+        recordStorageFailure();
         return false;
     }
     return true;
@@ -410,9 +493,17 @@ const PendingMeasurement *DeviceState::pendingItems() const
     return queue_.items;
 }
 
-void DeviceState::acknowledge(const uint64_t *sequences, size_t sequenceCount)
+bool DeviceState::queueHealthy() const
 {
-    loadQueue();
+    return const_cast<DeviceState *>(this)->loadQueue();
+}
+
+bool DeviceState::acknowledge(const uint64_t *sequences, size_t sequenceCount)
+{
+    if (!loadQueue()) {
+        return false;
+    }
+    const QueueState before = queue_;
     uint16_t target = 0;
     for (uint16_t source = 0; source < queue_.count; ++source) {
         bool acknowledged = false;
@@ -431,8 +522,13 @@ void DeviceState::acknowledge(const uint64_t *sequences, size_t sequenceCount)
     }
     if (target != queue_.count) {
         queue_.count = target;
-        saveQueue();
+        if (!saveQueue()) {
+            queue_ = before;
+            recordStorageFailure();
+            return false;
+        }
     }
+    return true;
 }
 
 uint32_t DeviceState::incrementBootCount()
@@ -457,7 +553,8 @@ void DeviceState::factoryReset()
         }
     }
     queue_ = QueueState{};
-    queueLoaded_ = true;
+    queueLoaded_ = false;
+    queueHealthy_ = false;
     operational_ = OperationalState{};
     operationalLoaded_ = true;
 }

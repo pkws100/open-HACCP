@@ -2,6 +2,8 @@
 
 This document binds the operator workflow, local ESP32 setup portal, and first authenticated HTTPS request. It is separate from Sensor Protocol V1 because the local portal is not a public backend endpoint.
 
+The ESP32-WROOM-32/DHT22 and ESP8266 D1 mini/DHT22 USB profiles follow the same verify-before-save operator workflow. Their distinct wiring, PlatformIO targets, setup-password handling and Deep-Sleep prerequisites are in [`DHT22_INBETRIEBNAHME.md`](DHT22_INBETRIEBNAHME.md). The ESP32-S3/SHT45 implementation below retains its existing pins and battery profile.
+
 ## Why SoftAP instead of Wi-Fi IBSS
 
 On an unprovisioned ESP32-S3, the reference firmware starts a WPA2-protected Wi-Fi SoftAP named `OpenHACCP-<six hex digits>` and serves a local portal at `http://192.168.4.1`. SoftAP provides the direct device-to-phone/laptop experience commonly described as “ad hoc”, while remaining compatible with standard mobile Wi-Fi clients and captive-portal detection. It is not an Internet-facing access point.
@@ -49,7 +51,7 @@ The device fetches config during the onboarding check. In normal operation, ever
 
 ## Recovery and factory reset
 
-Hold the configured factory-reset/BOOT pin low for at least five seconds during boot. The reference firmware clears provisioning credentials, runtime config, sequence state, and all pending measurements, then starts the setup AP again.
+For the ESP32-S3 reference, press the BOOT button **after** a normal reset, within the firmware's first two seconds, and keep it pressed for five seconds. Holding GPIO0 low through reset selects the ROM download mode instead of starting the firmware. For the ESP-WROOM-32/DHT22 profile, connect its configured GPIO27 reset input to GND during boot and keep it low for five seconds; the D1 mini uses D5/GPIO14. The firmware then clears provisioning credentials, runtime config, sequence state, and all pending measurements and starts the setup AP again.
 
 This reset is intentionally destructive. Export or upload pending readings before resetting whenever possible. A normal power cycle never clears credentials, sequence state, runtime config, or the durable 64-record pending queue.
 

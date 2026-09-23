@@ -1,12 +1,12 @@
 import { api, setCsrfToken } from './api.js?v=20260810-1';
-import { overviewView } from './views/overview.js?v=20260812-1';
-import { analysisView } from './views/analysis.js?v=20260812-1';
+import { overviewView } from './views/overview.js?v=20260923-1';
+import { analysisView } from './views/analysis.js?v=20260923-1';
 import { eventsView } from './views/events.js?v=20260810-1';
 import { exportsView } from './views/exports.js?v=20260810-1';
 import { usersView } from './views/users.js?v=20260810-1';
 import { establishmentView } from './views/establishment.js?v=20260810-1';
 import { closeDialog, errorMessage, openDialog } from './dialog.js?v=20260810-1';
-import { roleLabel } from './format.js?v=20260810-1';
+import { roleLabel } from './format.js?v=20260923-1';
 import { applyTheme, bindThemeControls, themePreference } from './theme.js?v=20260810-1';
 
 const views = { overview: overviewView, analysis: analysisView, events: eventsView, exports: exportsView, users: usersView, establishment: establishmentView };

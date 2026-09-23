@@ -224,7 +224,7 @@ final readonly class ExportGenerator
                 $this->effectiveMeasurementInterval($row),
             ];
             if ($this->selected($context, 'humidity')) $base[] = (float) $row['humidity_rh'];
-            if ($this->selected($context, 'battery')) $base[] = (int) $row['battery_mv'];
+            if ($this->selected($context, 'battery')) $base[] = $row['battery_mv'] === null ? null : (int) $row['battery_mv'];
             if ($this->selected($context, 'sequences')) $base[] = (int) $row['sequence'];
             if ($this->selected($context, 'received_at')) $base[] = new \DateTimeImmutable((string) $row['received_at'], new \DateTimeZone('UTC'));
             if ($this->selected($context, 'firmware')) {
@@ -258,7 +258,7 @@ final readonly class ExportGenerator
             if ($this->selected($context, 'transmissions')) array_push($diagnosticHeaders, 'Boots', 'Diagnosecodes');
             $diagnosticRows = array_map(function (array $row) use ($context): array {
                 $values = [new \DateTimeImmutable((string) $row['received_at'], new \DateTimeZone('UTC')), $this->safe($row['device_name'])];
-                if ($this->selected($context, 'battery')) $values[] = (int) $row['battery_mv'];
+                if ($this->selected($context, 'battery')) $values[] = $row['battery_mv'] === null ? null : (int) $row['battery_mv'];
                 if ($this->selected($context, 'rssi')) $values[] = (int) $row['rssi_dbm'];
                 if ($this->selected($context, 'wifi_timing')) $values[] = (int) $row['wifi_connect_ms'];
                 if ($this->selected($context, 'firmware')) array_push($values, $this->safe($row['firmware_version']), $this->safe($row['hardware_revision']));
@@ -358,7 +358,7 @@ final readonly class ExportGenerator
                     $this->measurementStatus($row), $this->effectiveMeasurementInterval($row),
                 ];
                 if ($this->selected($context, 'humidity')) $values[] = (float) $row['humidity_rh'];
-                if ($this->selected($context, 'battery')) $values[] = (int) $row['battery_mv'];
+                if ($this->selected($context, 'battery')) $values[] = $row['battery_mv'] === null ? null : (int) $row['battery_mv'];
                 if ($this->selected($context, 'sequences')) $values[] = (int) $row['sequence'];
                 if ($this->selected($context, 'received_at')) $values[] = $row['received_at'];
                 if ($this->selected($context, 'firmware')) array_push($values, $row['firmware_version'], $row['hardware_revision']);
@@ -441,6 +441,11 @@ final readonly class ExportGenerator
         }
         $result = [];
         foreach ($groups as $deviceUid => $rows) {
+            $rows = array_values(array_filter($rows, static fn (array $row): bool => $row['battery_mv'] !== null));
+            if ($rows === []) {
+                $result[] = ['device_uid' => $deviceUid, 'status' => 'unavailable', 'estimated_days_remaining' => null, 'confidence' => null, 'label' => 'keine Batteriemessung'];
+                continue;
+            }
             usort($rows, static fn (array $left, array $right): int => strcmp((string) $left['measured_at'], (string) $right['measured_at']));
             $latestTimestamp = strtotime((string) end($rows)['measured_at']);
             $rows = array_values(array_filter($rows, static fn (array $row): bool => strtotime((string) $row['measured_at']) >= $latestTimestamp - 30 * 86400));

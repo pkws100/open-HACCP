@@ -67,7 +67,7 @@ final readonly class HeartbeatService
                 $device->id,
                 (string) $heartbeat['firmware_version'],
                 (string) $heartbeat['hardware_revision'],
-                (int) $heartbeat['battery_mv'],
+                $heartbeat['battery_mv'],
                 (int) $heartbeat['rssi_dbm'],
                 $remoteIp,
                 $databaseNow,
@@ -77,7 +77,7 @@ final readonly class HeartbeatService
             $this->eventService->diagnostics(
                 $device->id,
                 $transmissionId,
-                (int) $heartbeat['battery_mv'],
+                $heartbeat['battery_mv'],
                 (int) $heartbeat['rssi_dbm'],
                 $configuration,
                 $databaseNow,

@@ -27,7 +27,7 @@
       "type": "object",
       "required": ["battery_mv", "rssi_dbm", "wifi_connect_ms", "boot_count"],
       "properties": {
-        "battery_mv": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "battery_mv": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000 },
         "rssi_dbm": { "type": "integer", "minimum": -120, "maximum": 0 },
         "wifi_connect_ms": { "type": "integer", "minimum": 0, "maximum": 120000 },
         "boot_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
@@ -121,7 +121,7 @@
         "measured_at": { "$ref": "#/$defs/utcTimestamp" },
         "temperature_c": { "type": "number", "minimum": -100, "maximum": 150 },
         "humidity_rh": { "type": "number", "minimum": 0, "maximum": 100 },
-        "battery_mv": { "type": "integer", "minimum": 0, "maximum": 10000 }
+        "battery_mv": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000 }
       },
       "additionalProperties": false
     },
@@ -175,7 +175,7 @@
         "protocol_version": { "const": 1 },
         "firmware_version": { "$ref": "#/$defs/versionString" },
         "hardware_revision": { "$ref": "#/$defs/versionString" },
-        "battery_mv": { "type": "integer", "minimum": 0, "maximum": 10000 },
+        "battery_mv": { "type": ["integer", "null"], "minimum": 0, "maximum": 10000 },
         "rssi_dbm": { "type": "integer", "minimum": -120, "maximum": 0 },
         "wifi_connect_ms": { "type": "integer", "minimum": 0, "maximum": 120000 },
         "boot_count": { "type": "integer", "minimum": 0, "maximum": 4294967295 },

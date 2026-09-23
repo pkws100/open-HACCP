@@ -87,7 +87,7 @@ final readonly class DeviceRepository
         int $deviceId,
         string $firmwareVersion,
         string $hardwareRevision,
-        int $batteryMv,
+        ?int $batteryMv,
         int $rssiDbm,
         ?string $remoteIp,
         string $now,

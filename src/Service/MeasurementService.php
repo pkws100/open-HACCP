@@ -192,7 +192,7 @@ final readonly class MeasurementService
             $this->eventService->diagnostics(
                 $device->id,
                 $transmissionId,
-                (int) $diagnostics['battery_mv'],
+                $diagnostics['battery_mv'],
                 (int) $diagnostics['rssi_dbm'],
                 $configuration,
                 $receivedAt,
@@ -257,7 +257,7 @@ final readonly class MeasurementService
         return $existingTime->format('Y-m-d H:i:s.u') === $measurement['measured_at_db']
             && number_format((float) $existing['temperature_c'], 3, '.', '') === $measurement['temperature_c_db']
             && number_format((float) $existing['humidity_rh'], 3, '.', '') === $measurement['humidity_rh_db']
-            && (int) $existing['battery_mv'] === $measurement['battery_mv'];
+            && ($existing['battery_mv'] === null ? null : (int) $existing['battery_mv']) === $measurement['battery_mv'];
     }
 
     /** @return array<string, mixed> */

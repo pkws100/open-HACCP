@@ -1,4 +1,4 @@
-import { escapeHtml } from './format.js?v=20260810-1';
+import { escapeHtml } from './format.js?v=20260923-1';
 
 const dialog = document.querySelector('#app-dialog');
 const title = document.querySelector('#dialog-title');

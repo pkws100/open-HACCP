@@ -146,6 +146,8 @@ pio run -e esp32-s3-devkitc-1-sleep-fallback
 
 The forced-fallback profile is a bench aid; production uses the normal profile. Hardware current measurement, battery-divider calibration, queue sizing for the promised offline horizon, Secure Boot/Flash Encryption, encrypted NVS, OTA and destructive power-loss tests remain production gates.
 
+For the photographed USB-C ESP-WROOM-32 boards and ESP8266 D1 mini with a three-pin DHT22/AM2302 module, use the separate build/flash targets and the seven-step wiring and commissioning procedure in [`docs/DHT22_INBETRIEBNAHME.md`](docs/DHT22_INBETRIEBNAHME.md). These USB builds report mains power with no available battery voltage. The `esp32dev` build setting for the ESP-WROOM-32 target remains provisional until the attached board's USB identity and flash size are checked.
+
 See [`docs/SENSOR_PROTOCOL_V1.md`](docs/SENSOR_PROTOCOL_V1.md), [`docs/FIRMWARE_CONTRACT.md`](docs/FIRMWARE_CONTRACT.md) and [`docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md`](docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md).
 
 ## Demo fleet

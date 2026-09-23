@@ -37,11 +37,11 @@ final readonly class ComplianceEventService
         }
     }
 
-    public function diagnostics(int $deviceId, int $transmissionId, int $batteryMv, int $rssiDbm, array $configuration, string $at, array $errorCodes = []): void
+    public function diagnostics(int $deviceId, int $transmissionId, ?int $batteryMv, int $rssiDbm, array $configuration, string $at, array $errorCodes = []): void
     {
         $this->lockDevice($deviceId);
         $low = (int) ($configuration['battery']['low_threshold_mv'] ?? 5600);
-        if ($batteryMv < $low) {
+        if ($batteryMv !== null && $batteryMv < $low) {
             $this->openState($deviceId, null, 'battery_low', 'warning', $at, $batteryMv, $low, null, null, $transmissionId);
         } else {
             $this->closeState($deviceId, null, 'battery_low', $at);

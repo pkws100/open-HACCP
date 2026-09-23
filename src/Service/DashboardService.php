@@ -121,6 +121,8 @@ final readonly class DashboardService
     private function device(array $row): array
     {
         $batteryMv = isset($row['last_battery_mv']) ? (int) $row['last_battery_mv'] : null;
+        $deviceInfo = $this->jsonObject($row['device_info_json'] ?? null);
+        $mainsPower = $batteryMv === null && in_array('mains_power', $deviceInfo['capabilities'] ?? [], true);
         $rssiDbm = isset($row['last_rssi_dbm']) ? (int) $row['last_rssi_dbm'] : null;
         $minimum = $this->float($row['temperature_min_c'] ?? null);
         $maximum = $this->float($row['temperature_max_c'] ?? null);
@@ -151,7 +153,7 @@ final readonly class DashboardService
             'status' => $row['status'],
             'hardware_revision' => $row['hardware_revision'],
             'firmware_version' => $row['firmware_version'],
-            'device_info' => $this->jsonObject($row['device_info_json'] ?? null),
+            'device_info' => $deviceInfo,
             'configuration_delivery' => [
                 'current_version' => isset($row['config_version']) ? (int) $row['config_version'] : null,
                 'applied_version' => isset($row['last_applied_config_version']) ? (int) $row['last_applied_config_version'] : null,
@@ -169,10 +171,12 @@ final readonly class DashboardService
             'photo' => $this->photo($row),
             'battery' => [
                 'millivolts' => $batteryMv,
+                'power_source' => $mainsPower ? 'mains' : ($batteryMv !== null ? 'battery' : 'unknown'),
                 'state' => $this->status->battery(
                     $batteryMv,
                     (int) ($row['battery_low_mv'] ?? 5600),
                     (int) ($row['battery_full_mv'] ?? 6000),
+                    $mainsPower,
                 ),
             ],
             'wifi' => [
@@ -271,7 +275,7 @@ final readonly class DashboardService
             'measured_at' => $this->timestamp($row['measured_at']),
             'temperature_c' => $this->float($row['temperature_c']),
             'humidity_rh' => $this->float($row['humidity_rh']),
-            'battery_mv' => (int) $row['battery_mv'],
+            'battery_mv' => $row['battery_mv'] === null ? null : (int) $row['battery_mv'],
         ];
         if ($includeReceivedAt) {
             $result['received_at'] = $this->timestamp($row['received_at']);
@@ -293,7 +297,7 @@ final readonly class DashboardService
             'received_at' => $this->timestamp($row['received_at']),
             'firmware_version' => $row['firmware_version'],
             'hardware_revision' => $row['hardware_revision'],
-            'battery_mv' => (int) $row['battery_mv'],
+            'battery_mv' => $row['battery_mv'] === null ? null : (int) $row['battery_mv'],
             'rssi_dbm' => (int) $row['rssi_dbm'],
             'wifi_connect_ms' => (int) $row['wifi_connect_ms'],
             'boot_count' => (int) $row['boot_count'],

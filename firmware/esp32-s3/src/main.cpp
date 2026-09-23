@@ -1,15 +1,20 @@
-#include <Adafruit_SHT4x.h>
 #include <Arduino.h>
 #include <WiFi.h>
+#include "FirmwareConfig.h"
+#if defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
+#include <DHT.h>
+#else
+#include <Adafruit_SHT4x.h>
 #include <Wire.h>
+#endif
 #include <esp_sleep.h>
 #include <esp_system.h>
 #include <time.h>
 
 #include "DeviceState.h"
-#include "FirmwareConfig.h"
 #include "HaccpClient.h"
 #include "ProvisioningPortal.h"
+#include "SensorValidation.h"
 
 namespace {
 DeviceState deviceState;
@@ -17,7 +22,11 @@ HaccpClient haccpClient;
 ProvisioningPortal provisioningPortal(deviceState, haccpClient);
 ProvisioningConfig provisioning;
 RuntimeConfig runtimeConfig;
+#if defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
+DHT sensor(OPEN_HACCP_DHT_DATA_PIN, DHT22);
+#else
 Adafruit_SHT4x sensor;
+#endif
 
 bool portalMode = false;
 bool sensorReady = false;
@@ -108,7 +117,9 @@ bool connectWifi()
 
 uint16_t batteryMillivolts()
 {
-#if OPEN_HACCP_BATTERY_ADC_PIN >= 0
+#if OPEN_HACCP_BATTERY_UNAVAILABLE
+    return UINT16_MAX; // Internal sentinel; serialized as JSON null, never as 65535 mV.
+#elif OPEN_HACCP_BATTERY_ADC_PIN >= 0
     const uint32_t pinMillivolts = analogReadMilliVolts(OPEN_HACCP_BATTERY_ADC_PIN);
     return static_cast<uint16_t>(constrain(
         static_cast<uint32_t>(lroundf(pinMillivolts * OPEN_HACCP_BATTERY_DIVIDER)),
@@ -135,7 +146,7 @@ DeviceDiagnostics diagnostics()
     value.resetReason = currentResetReason;
     value.requestedSleepMode = OPEN_HACCP_DISABLE_DEEP_SLEEP ? "light_sleep_fallback" : "deep_sleep";
     value.operational = deviceState.operational();
-    value.errorCount = deviceState.diagnosticCodes(value.errors, 8);
+    value.errorCount = deviceState.diagnosticCodes(value.errors, 10);
     return value;
 }
 
@@ -183,27 +194,47 @@ void sampleSensor(int64_t now)
         deviceState.recordSensorUnavailable();
         return;
     }
+#if defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
+    const float humidityRh = sensor.readHumidity();
+    const float temperatureC = sensor.readTemperature();
+#else
     sensors_event_t humidity;
     sensors_event_t temperature;
     sensor.getEvent(&humidity, &temperature);
-    if (!isfinite(temperature.temperature) || !isfinite(humidity.relative_humidity)
-        || temperature.temperature < -100 || temperature.temperature > 150
-        || humidity.relative_humidity < 0 || humidity.relative_humidity > 100) {
+    const float humidityRh = humidity.relative_humidity;
+    const float temperatureC = temperature.temperature;
+#endif
+    if (!validSensorReading(temperatureC, humidityRh)) {
+#if defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
+        deviceState.recordDhtReadFailure();
+        Serial.println("DHT22 reading invalid or timed out; measurement was not queued.");
+#else
         deviceState.recordSensorUnavailable();
         Serial.println("SHT45 sample rejected locally.");
+#endif
+        sensorReady = false;
         return;
     }
+#if defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
+    deviceState.recordDhtReadSuccess();
+#endif
+    sensorReady = true;
     if (!deviceState.enqueue(
         now,
-        temperature.temperature,
-        humidity.relative_humidity,
+        temperatureC,
+        humidityRh,
         batteryMillivolts()
     )) {
-        deviceState.recordQueueFull();
-        Serial.println("Offline queue is full or could not be persisted; no record was overwritten.");
+        if (deviceState.queueHealthy()) {
+            deviceState.recordQueueFull();
+            Serial.println("Offline queue is full or could not be persisted; no record was overwritten.");
+        } else {
+            Serial.println("Offline queue is unavailable; storage must be checked before measuring again.");
+        }
         return;
     }
-    Serial.printf("Measurement queued (pending=%u).\n", static_cast<unsigned>(deviceState.pendingCount()));
+    Serial.printf("Measurement: %.2f C, %.2f %%RH; queued (pending=%u).\n",
+        temperatureC, humidityRh, static_cast<unsigned>(deviceState.pendingCount()));
 }
 
 uint32_t retryDelaySeconds()
@@ -277,7 +308,12 @@ bool uploadOrHeartbeat(int64_t now)
             error
         );
         if (requestSucceeded) {
-            deviceState.acknowledge(acknowledged, acknowledgedCount);
+            if (!deviceState.acknowledge(acknowledged, acknowledgedCount)) {
+                deviceState.recordTransportFailure();
+                scheduleRetry(now);
+                Serial.println("ACK persistence failed; pending measurements retained.");
+                return false;
+            }
             Serial.printf("Batch processed; %u records acknowledged, %u remain.\n",
                 static_cast<unsigned>(acknowledgedCount),
                 static_cast<unsigned>(deviceState.pendingCount()));
@@ -348,19 +384,28 @@ uint32_t nextSleepSeconds(int64_t now)
 {
     const OperationalState &state = deviceState.operational();
     if (!validClock()) {
-        if (state.nextNetworkAttemptAt > now) {
-            return static_cast<uint32_t>(max(
+        if (state.retrySleepPending && state.nextNetworkAttemptAt > 1704067200) {
+            const uint32_t delay = static_cast<uint32_t>(constrain(
+                state.nextNetworkAttemptAt - 1704067200,
                 static_cast<int64_t>(OPEN_HACCP_MINIMUM_SLEEP_SECONDS),
-                state.nextNetworkAttemptAt - now
+                static_cast<int64_t>(604800)
             ));
+            deviceState.consumeNoClockRetryPause();
+            return delay;
         }
         return 60;
     }
     int64_t next = dueAt(state.lastSampleAt, runtimeConfig.measurementIntervalSeconds, now);
-    next = min(next, dueAt(state.lastSuccessfulTransmissionAt, runtimeConfig.uploadIntervalSeconds, now));
-    next = min(next, dueAt(state.lastConfigCheckAt, OPEN_HACCP_CONFIG_REFRESH_SECONDS, now));
-    if (state.nextNetworkAttemptAt > 0) {
+    if (state.nextNetworkAttemptAt > now) {
+        // A failed upload or configuration request owns the next network slot.
+        // Overdue upload/config deadlines must not cause ten-second retry loops.
         next = min(next, state.nextNetworkAttemptAt);
+    } else {
+        next = min(next, dueAt(state.lastSuccessfulTransmissionAt, runtimeConfig.uploadIntervalSeconds, now));
+        next = min(next, dueAt(state.lastConfigCheckAt, OPEN_HACCP_CONFIG_REFRESH_SECONDS, now));
+        if (deviceState.pendingCount() >= runtimeConfig.maxBatchSize) {
+            next = now;
+        }
     }
     if (next <= now) {
         return OPEN_HACCP_MINIMUM_SLEEP_SECONDS;
@@ -380,7 +425,9 @@ void powerDownAndSleep(uint32_t seconds)
     }
     WiFi.disconnect(true, false);
     WiFi.mode(WIFI_OFF);
+#if !defined(OPEN_HACCP_SENSOR_DHT22) || !OPEN_HACCP_SENSOR_DHT22
     Wire.end();
+#endif
     delay(20);
 
     const uint64_t sleepUs = static_cast<uint64_t>(seconds) * 1000000ULL;
@@ -427,6 +474,17 @@ void startPortal()
 bool factoryResetRequested()
 {
     pinMode(OPEN_HACCP_FACTORY_RESET_PIN, INPUT_PULLUP);
+#if !defined(OPEN_HACCP_SENSOR_DHT22) || !OPEN_HACCP_SENSOR_DHT22
+    // GPIO0 is a boot-strap pin on the S3 reference board: holding BOOT
+    // through reset enters the ROM loader. Allow pressing it *after* boot.
+    if (esp_reset_reason() != ESP_RST_DEEPSLEEP) {
+        const uint32_t windowStartedAt = millis();
+        while (digitalRead(OPEN_HACCP_FACTORY_RESET_PIN) != LOW
+            && !elapsed(windowStartedAt, 2000)) {
+            delay(20);
+        }
+    }
+#endif
     if (digitalRead(OPEN_HACCP_FACTORY_RESET_PIN) != LOW) {
         return false;
     }
@@ -455,7 +513,9 @@ void runWakeCycle()
         && now >= initialState.nextNetworkAttemptAt;
     const bool queuePressure = deviceState.pendingCount() >= runtimeConfig.maxBatchSize;
     bool networkDue = needsClock || uploadDue || configDue || retryDue || queuePressure;
-    if (networkDue && validClock() && initialState.nextNetworkAttemptAt > now && !queuePressure) {
+    if (!validClock() && initialState.retrySleepPending) {
+        networkDue = false;
+    } else if (networkDue && validClock() && initialState.nextNetworkAttemptAt > now) {
         networkDue = false;
     }
 
@@ -478,7 +538,8 @@ void runWakeCycle()
                 now
             );
             configDue = now >= dueAt(deviceState.operational().lastConfigCheckAt, OPEN_HACCP_CONFIG_REFRESH_SECONDS, now);
-            if (uploadDue || configDue || deviceState.pendingCount() >= runtimeConfig.maxBatchSize) {
+            if (uploadDue || configDue || retryDue
+                || deviceState.pendingCount() >= runtimeConfig.maxBatchSize) {
                 uploadOrHeartbeat(now);
             }
         }
@@ -515,6 +576,14 @@ void setup()
     WiFi.mode(WIFI_STA);
     WiFi.setAutoReconnect(false);
     WiFi.persistent(false);
+#if defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
+    sensor.begin();
+    // AM2302 needs its startup interval after every power-up or reset and
+    // must not be read more often than once every two seconds.
+    delay(2500);
+    sensorReady = true;
+    Serial.printf("DHT22 data pin GPIO%d; startup interval complete.\n", OPEN_HACCP_DHT_DATA_PIN);
+#else
     Wire.begin(OPEN_HACCP_I2C_SDA, OPEN_HACCP_I2C_SCL);
     sensorReady = sensor.begin();
     if (sensorReady) {
@@ -524,6 +593,7 @@ void setup()
         deviceState.recordSensorUnavailable();
         Serial.println("SHT45 not detected; diagnostic heartbeat remains available.");
     }
+#endif
 #if OPEN_HACCP_BATTERY_ADC_PIN >= 0
     analogSetPinAttenuation(OPEN_HACCP_BATTERY_ADC_PIN, ADC_11db);
 #endif
