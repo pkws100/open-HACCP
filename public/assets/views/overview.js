@@ -138,7 +138,9 @@ function settingsDialog() {
     [10800, '8 × täglich'],
     [14400, '6 × täglich'],
     [17280, '5 × täglich'],
+    [21600, '4 × täglich'],
     [28800, '3 × täglich'],
+    [43200, '2 × täglich'],
     [86400, '1 × täglich'],
   ];
   if (!uploadIntervals.some(([seconds]) => seconds === currentUploadInterval)) {
