@@ -4,7 +4,9 @@ import { openDialog, closeDialog, errorMessage } from '../dialog.js?v=20260810-1
 import { alarmLabel, escapeHtml, formatDate, formatNumber, metric, powerLabel, signalIcon, statusPill } from '../format.js?v=20260923-2';
 
 const state = { device: '', point: '', hours: 24, data: null, initialized: false };
+const photoAccept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
 let context;
+let photoUploadInProgress = false;
 
 export const overviewView = {
   init(app) {
@@ -63,16 +65,23 @@ function renderFocus() {
   const data = state.data; const device = data.selected_device;
   if (!device) { document.querySelector('#device-focus').innerHTML = '<p>Kein aktives Gerät.</p>'; return; }
   const settings = data.settings; const kpi = data.kpis || {}; const point = data.selected_measurement_point; const photo = point?.photo;
+  const canUploadPhoto = point && context.user.role !== 'auditor';
   const photoMarkup = photo
     ? `<button class="focus-photo" id="focus-photo" type="button" aria-label="Foto von ${escapeHtml(point.name)} groß anzeigen"><img src="${escapeHtml(photo.thumbnail_url)}" alt="${escapeHtml(photoAlt(point))}"><span>Bild öffnen · Revision ${photo.revision}</span></button>`
-    : `<div class="focus-photo-empty"><span aria-hidden="true">＋</span><strong>Noch kein Foto</strong><small>${escapeHtml(point?.name || 'Messstelle')}</small></div>`;
-  const photoActions = point && context.user.role !== 'auditor' ? `<label class="secondary-button file-button">Foto aufnehmen<input type="file" id="photo-camera" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment"></label><label class="secondary-button file-button">Bild auswählen<input type="file" id="photo-library" accept="image/jpeg,image/png,image/webp,image/heic,image/heif"></label>` : '';
+    : canUploadPhoto
+      ? `<label class="focus-photo-empty photo-upload-target"><span aria-hidden="true">＋</span><strong>Foto hinzufügen</strong><small>${escapeHtml(point.name)}</small><input type="file" data-photo-upload accept="${photoAccept}" aria-label="Foto für ${escapeHtml(point.name)} hinzufügen"></label>`
+      : `<div class="focus-photo-empty"><span aria-hidden="true">＋</span><strong>Noch kein Foto</strong><small>${escapeHtml(point?.name || 'Messstelle')}</small></div>`;
+  const photoActions = canUploadPhoto ? `<label class="secondary-button file-button">Foto aufnehmen<input type="file" data-photo-upload accept="${photoAccept}" capture="environment" aria-label="Foto aufnehmen"></label><label class="secondary-button file-button">Bild auswählen<input type="file" data-photo-upload accept="${photoAccept}" aria-label="Bild auswählen"></label>` : '';
   const delivery = device.configuration_delivery || {};
   const deliveryLabel = delivery.up_to_date ? `Übernommen · v${delivery.applied_version}` : delivery.applied_version ? `Ausstehend · v${delivery.applied_version}/${delivery.current_version}` : 'Noch nicht bestätigt';
   document.querySelector('#device-focus').innerHTML = `${photoMarkup}<div><p class="eyebrow">Ausgewählte Messstelle</p><h2>${escapeHtml(device.name)}</h2><p>${escapeHtml(point?.name || device.device_uid)}${point?.location ? ` · ${escapeHtml(point.location)}` : ''}</p><div class="focus-reading"><strong>${formatNumber(kpi.latest_temperature_c, ' °C')}</strong><span>${escapeHtml(alarmLabel(kpi.alarm_status))} · Bereich ${formatNumber(settings?.alarm?.temperature_min_c)} bis ${formatNumber(settings?.alarm?.temperature_max_c)} °C</span></div></div><div class="focus-status"><div><span>Stromversorgung</span><strong>${powerLabel(device.battery)}</strong></div><div><span>Funksignal</span><strong>${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</strong></div><div><span>Firmware</span><strong>${escapeHtml(device.firmware_version || '–')}</strong></div><div><span>Konfiguration</span><strong>${escapeHtml(deliveryLabel)}</strong></div><div><span>Letzte Verbindung</span><strong>${formatDate(device.last_seen_at)}</strong></div></div><div class="focus-actions">${photoActions}${photo ? '<button class="secondary-button" id="photo-history" type="button">Bildverlauf</button>' : ''}<button class="secondary-button" id="device-diagnostics" type="button">Geräteinformationen</button>${context.user.role !== 'auditor' ? `<button class="secondary-button" id="device-identity" type="button">Namen & Ort</button><button class="secondary-button" id="device-settings" type="button">Grenzwerte & Takt</button>${['battery', 'battery_unmonitored'].includes(device.battery.power_source) ? '<button class="secondary-button" id="battery-replaced" type="button">Batterie gewechselt</button>' : ''}` : ''}</div>`;
   document.querySelector('#focus-photo')?.addEventListener('click', photoHistoryDialog);
   document.querySelector('#photo-history')?.addEventListener('click', photoHistoryDialog);
-  document.querySelectorAll('#photo-camera, #photo-library').forEach((input) => input.addEventListener('change', (event) => uploadPhoto(event.target.files?.[0])));
+  document.querySelectorAll('[data-photo-upload]').forEach((input) => input.addEventListener('change', (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    uploadPhoto(file);
+  }));
   document.querySelector('#device-settings')?.addEventListener('click', settingsDialog);
   document.querySelector('#device-identity')?.addEventListener('click', identityDialog);
   document.querySelector('#device-diagnostics')?.addEventListener('click', diagnosticsDialog);
@@ -91,14 +100,22 @@ function renderRecent() {
 }
 
 async function uploadPhoto(file) {
-  if (!file) return;
+  if (!file || photoUploadInProgress) return;
   if (file.size > 12 * 1024 * 1024) { context.showMessage('Das Foto darf höchstens 12 MiB groß sein.'); return; }
+  photoUploadInProgress = true;
+  document.querySelectorAll('[data-photo-upload]').forEach((input) => { input.disabled = true; });
   const form = new FormData(); form.append('photo', file);
+  const pointId = state.data.selected_measurement_point.id;
   try {
-    await api(`/api/v1/dashboard/measurement-points/${state.data.selected_measurement_point.id}/photos`, { method: 'POST', body: form });
+    context.showMessage('Foto wird hochgeladen und verarbeitet …');
+    await api(`/api/v1/dashboard/measurement-points/${pointId}/photos`, { method: 'POST', body: form });
     context.showMessage('Das Messstellenfoto wurde sicher verarbeitet und versioniert.', true);
     await load();
   } catch (error) { context.showMessage(error.message); }
+  finally {
+    photoUploadInProgress = false;
+    document.querySelectorAll('[data-photo-upload]').forEach((input) => { input.disabled = false; });
+  }
 }
 
 async function photoHistoryDialog() {

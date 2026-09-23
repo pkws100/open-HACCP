@@ -161,6 +161,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-strong); 
 .focus-photo:hover img { transform: scale(1.02); }
 .focus-photo span { position: absolute; inset: auto 10px 10px; width: max-content; max-width: calc(100% - 20px); padding: 6px 8px; border-radius: 6px; background: rgba(5, 12, 11, .76); color: #f4fbf9; font-size: 10px; backdrop-filter: blur(7px); }
 .focus-photo-empty { display: grid; place-items: center; align-content: center; min-height: 190px; margin: 0 0 22px; border: 1px dashed var(--line); border-radius: 10px; background: var(--surface-2); color: var(--muted); text-align: center; }
+.photo-upload-target { position: relative; cursor: pointer; overflow: hidden; }
 .focus-photo-empty > span { font-size: 28px; color: var(--accent); }.focus-photo-empty strong { margin-top: 6px; color: var(--text); font-size: 13px; }.focus-photo-empty small { margin-top: 3px; color: var(--muted); }
 .device-focus h2 { margin: 4px 0 3px; font-size: 22px; }
 .device-focus > p { margin: 0 0 24px; color: var(--muted); }
@@ -171,8 +172,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-strong); 
 .focus-status > div { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid var(--line-soft); color: var(--muted); font-size: 11px; }
 .focus-status strong { color: var(--text); font-size: 12px; }
 .focus-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.file-button { position: relative; display: inline-flex; align-items: center; justify-content: center; }
-.file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.file-button { position: relative; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; }
+.file-button input, .photo-upload-target input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.file-button:focus-within, .photo-upload-target:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
 .device-cell { display: flex; align-items: center; gap: 11px; min-width: 190px; }
 .device-cell img, .device-thumb-empty { width: 54px; height: 40px; flex: 0 0 auto; border-radius: 7px; object-fit: cover; background: var(--surface-3); }
 .device-thumb-empty { border: 1px dashed var(--line); }
