@@ -41,8 +41,8 @@ jobs:
       DASHBOARD_USERNAME: haccp-test
       DASHBOARD_PASSWORD: haccp-test-dashboard-password
       PUBLIC_API_BASE_URL: https://haccp.pow24.org
-      EXPORT_PATH: ${{ runner.temp }}/haccp-exports
-      MEDIA_PATH: ${{ runner.temp }}/haccp-media
+      EXPORT_PATH: /tmp/haccp-exports
+      MEDIA_PATH: /tmp/haccp-media
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
