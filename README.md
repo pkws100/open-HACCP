@@ -185,10 +185,10 @@ The first upload reports accepted records; the immediate resend reports duplicat
 The default bind is loopback-only `127.0.0.1:18082`. The VPS override joins only `app` to the existing external `proxy` network with alias `haccp-monitor`; Nginx Proxy Manager routes `haccp.pow24.org` to `haccp-monitor:80`, forces HTTPS and uses a public certificate. Worker, database and demo expose no public port.
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build app worker db
+docker compose -p open-haccp -f docker-compose.yml -f docker-compose.vps.yml up -d --build app worker db
 ```
 
-Before an upgrade, take a MariaDB backup. The persistent `haccp-media-data` volume must be included in the normal encrypted VPS backup alongside MariaDB. Apply additive migrations, then start the app and worker; no additional public port or Nginx Proxy Manager route is needed because authenticated photo delivery uses the existing HTTPS host.
+Keep the `open-haccp` Compose project name when deploying from a new release directory so the existing database and media volumes remain attached. Do not start the optional `demo` service on the hardware test server. Before an upgrade, take a MariaDB backup. The persistent `haccp-media-data` volume must be included in the normal encrypted VPS backup alongside MariaDB. Apply additive migrations, then start the app and worker; no additional public port or Nginx Proxy Manager route is needed because authenticated photo delivery uses the existing HTTPS host.
 
 ## Tests
 
