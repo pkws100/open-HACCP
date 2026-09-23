@@ -107,7 +107,7 @@ async function uploadPhoto(file) {
   const form = new FormData(); form.append('photo', file);
   const pointId = state.data.selected_measurement_point.id;
   try {
-    context.showMessage('Foto wird hochgeladen und verarbeitet …');
+    context.showMessage('Foto wird hochgeladen und verarbeitet …', true);
     await api(`/api/v1/dashboard/measurement-points/${pointId}/photos`, { method: 'POST', body: form });
     context.showMessage('Das Messstellenfoto wurde sicher verarbeitet und versioniert.', true);
     await load();
