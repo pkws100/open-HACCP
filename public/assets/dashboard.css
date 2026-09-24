@@ -168,6 +168,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-strong); 
 .focus-reading { margin: 28px 0; }
 .focus-reading strong { display: block; font-size: 46px; line-height: 1; letter-spacing: -.06em; }
 .focus-reading span { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.focus-reading small { display: block; margin-top: 6px; color: var(--muted); font-size: 11px; }
 .focus-status { display: grid; gap: 10px; margin-bottom: 24px; }
 .focus-status > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); color: var(--muted); font-size: 11px; }
 .focus-status strong { min-width: 0; color: var(--text); font-size: 12px; text-align: right; overflow-wrap: anywhere; }

@@ -5,6 +5,8 @@ import { alarmLabel, escapeHtml, formatDate, formatNumber, metric, powerLabel, s
 
 const state = { device: '', point: '', hours: 24, recentPage: 1, data: null, initialized: false };
 const photoAccept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
+const preciseTemperature = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 3 });
+const signedOffset = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 3, signDisplay: 'exceptZero' });
 let context;
 let photoUploadInProgress = false;
 let loadSequence = 0;
@@ -59,13 +61,22 @@ function render() {
   pointSelect.innerHTML = data.measurement_points.map((point) => `<option value="${escapeHtml(point.code)}" ${point.code === state.point ? 'selected' : ''}>${escapeHtml(point.name)}</option>`).join('');
   const kpi = data.kpis || {};
   document.querySelector('#overview-metrics').innerHTML = [
-    metric('Aktuelle Temperatur', formatNumber(kpi.latest_temperature_c, ' °C'), alarmLabel(kpi.alarm_status)),
+    metric(Number(kpi.latest_temperature_offset_c) !== 0 && kpi.latest_temperature_offset_c != null ? 'Aktuelle Temperatur (korrigiert)' : 'Aktuelle Temperatur', temperatureLabel(kpi.latest_temperature_c), alarmLabel(kpi.alarm_status)),
     metric('Durchschnitt', formatNumber(kpi.average_temperature_c, ' °C'), `${formatNumber(kpi.minimum_temperature_c)} bis ${formatNumber(kpi.maximum_temperature_c)} °C`),
     metric('Luftfeuchte', formatNumber(kpi.latest_humidity_rh, ' %'), `Ø ${formatNumber(kpi.average_humidity_rh, ' %')}`),
     metric('Messwerte', formatNumber(kpi.measurement_count), `im ${data.window_hours}-Stunden-Fenster`),
   ].join('');
   document.querySelector('#chart-range').textContent = `${data.window_hours} Stunden`;
   renderChart(); renderFocus(); renderDevices(); renderRecent();
+}
+
+function temperatureLabel(value) {
+  return value == null ? '–' : `${preciseTemperature.format(Number(value))} °C`;
+}
+
+function calibrationNote(rawTemperature, offset) {
+  if (rawTemperature == null || offset == null || Number(offset) === 0) return '';
+  return `Korrigiert · Rohwert ${temperatureLabel(rawTemperature)} · Abgleich ${signedOffset.format(Number(offset))} °C`;
 }
 
 function renderChart() {
@@ -91,7 +102,8 @@ function renderFocus() {
   const photoActions = canUploadPhoto ? `<label class="secondary-button file-button">Foto aufnehmen<input type="file" data-photo-upload accept="${photoAccept}" capture="environment" aria-label="Foto aufnehmen"></label><label class="secondary-button file-button">Bild auswählen<input type="file" data-photo-upload accept="${photoAccept}" aria-label="Bild auswählen"></label>` : '';
   const delivery = device.configuration_delivery || {};
   const deliveryLabel = delivery.up_to_date ? `Übernommen · v${delivery.applied_version}` : delivery.applied_version ? `Ausstehend · v${delivery.applied_version}/${delivery.current_version}` : 'Noch nicht bestätigt';
-  document.querySelector('#device-focus').innerHTML = `${photoMarkup}<div><p class="eyebrow">Ausgewählte Messstelle</p><h2 id="selected-device-heading" tabindex="-1">${escapeHtml(device.name)}</h2><p>${escapeHtml(point?.name || device.device_uid)}${point?.location ? ` · ${escapeHtml(point.location)}` : ''}</p><div class="focus-reading"><strong>${formatNumber(kpi.latest_temperature_c, ' °C')}</strong><span>${escapeHtml(alarmLabel(kpi.alarm_status))} · Bereich ${formatNumber(settings?.alarm?.temperature_min_c)} bis ${formatNumber(settings?.alarm?.temperature_max_c)} °C</span></div></div><div class="focus-status"><div><span>Stromversorgung</span><strong>${powerLabel(device.battery)}</strong></div><div><span>Funksignal</span><strong>${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</strong></div><div><span>Firmware</span><strong>${escapeHtml(device.firmware_version || '–')}</strong></div><div><span>Konfiguration</span><strong>${escapeHtml(deliveryLabel)}</strong></div><div><span>Letzte Verbindung</span><strong>${formatDate(device.last_seen_at)}</strong></div></div><div class="focus-actions">${photoActions}${photo ? '<button class="secondary-button" id="photo-history" type="button">Bildverlauf</button>' : ''}<button class="secondary-button" id="device-diagnostics" type="button">Geräteinformationen</button>${context.user.role !== 'auditor' ? `<button class="secondary-button" id="device-identity" type="button">Namen & Ort</button><button class="secondary-button" id="device-settings" type="button">Grenzwerte & Takt</button>${['battery', 'battery_unmonitored'].includes(device.battery.power_source) ? '<button class="secondary-button" id="battery-replaced" type="button">Batterie gewechselt</button>' : ''}` : ''}</div>`;
+  const focusCalibration = calibrationNote(kpi.latest_raw_temperature_c, kpi.latest_temperature_offset_c);
+  document.querySelector('#device-focus').innerHTML = `${photoMarkup}<div><p class="eyebrow">Ausgewählte Messstelle</p><h2 id="selected-device-heading" tabindex="-1">${escapeHtml(device.name)}</h2><p>${escapeHtml(point?.name || device.device_uid)}${point?.location ? ` · ${escapeHtml(point.location)}` : ''}</p><div class="focus-reading"><strong>${temperatureLabel(kpi.latest_temperature_c)}</strong><span>${escapeHtml(alarmLabel(kpi.alarm_status))} · Bereich ${formatNumber(settings?.alarm?.temperature_min_c)} bis ${formatNumber(settings?.alarm?.temperature_max_c)} °C</span>${focusCalibration ? `<small>${escapeHtml(focusCalibration)}</small>` : ''}</div></div><div class="focus-status"><div><span>Stromversorgung</span><strong>${powerLabel(device.battery)}</strong></div><div><span>Funksignal</span><strong>${signalIcon(device.wifi.bars)} ${formatNumber(device.wifi.rssi_dbm, ' dBm')}</strong></div><div><span>Firmware</span><strong>${escapeHtml(device.firmware_version || '–')}</strong></div><div><span>Konfiguration</span><strong>${escapeHtml(deliveryLabel)}</strong></div><div><span>Letzte Verbindung</span><strong>${formatDate(device.last_seen_at)}</strong></div></div><div class="focus-actions">${photoActions}${photo ? '<button class="secondary-button" id="photo-history" type="button">Bildverlauf</button>' : ''}<button class="secondary-button" id="device-diagnostics" type="button">Geräteinformationen</button>${context.user.role !== 'auditor' ? `<button class="secondary-button" id="device-identity" type="button">Namen & Ort</button><button class="secondary-button" id="device-settings" type="button">Grenzwerte, Takt &amp; Abgleich</button>${['battery', 'battery_unmonitored'].includes(device.battery.power_source) ? '<button class="secondary-button" id="battery-replaced" type="button">Batterie gewechselt</button>' : ''}` : ''}</div>`;
   document.querySelector('#focus-photo')?.addEventListener('click', photoHistoryDialog);
   document.querySelector('#photo-history')?.addEventListener('click', photoHistoryDialog);
   document.querySelectorAll('[data-photo-upload]').forEach((input) => input.addEventListener('change', (event) => {
@@ -163,7 +175,10 @@ async function selectDevice(uid) {
 function renderRecent() {
   const powerSource = state.data.selected_device?.battery?.power_source;
   const missingBatteryLabel = powerSource === 'mains' ? 'Netzbetrieb' : powerSource === 'battery_unmonitored' ? 'Batteriebetrieb · Wert nicht verfügbar' : '–';
-  document.querySelector('#recent-table').innerHTML = (state.data.recent_measurements || []).map((row) => `<tr><td data-label="Zeitpunkt">${formatDate(row.measured_at)}</td><td data-label="Sequenz">${row.sequence}</td><td data-label="Temperatur"><strong>${formatNumber(row.temperature_c, ' °C')}</strong></td><td data-label="Feuchte">${formatNumber(row.humidity_rh, ' %')}</td><td data-label="Batterie">${row.battery_mv == null ? missingBatteryLabel : formatNumber(row.battery_mv, ' mV')}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="5">Noch keine Messwerte vorhanden.</td></tr>';
+  document.querySelector('#recent-table').innerHTML = (state.data.recent_measurements || []).map((row) => {
+    const note = calibrationNote(row.raw_temperature_c, row.temperature_offset_c);
+    return `<tr><td data-label="Zeitpunkt">${formatDate(row.measured_at)}</td><td data-label="Sequenz">${row.sequence}</td><td data-label="Temperatur"><strong>${temperatureLabel(row.temperature_c)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ''}</td><td data-label="Feuchte">${formatNumber(row.humidity_rh, ' %')}</td><td data-label="Batterie">${row.battery_mv == null ? missingBatteryLabel : formatNumber(row.battery_mv, ' mV')}</td></tr>`;
+  }).join('') || '<tr class="empty-row"><td colspan="5">Noch keine Messwerte vorhanden.</td></tr>';
   renderRecentPagination();
 }
 
@@ -313,12 +328,46 @@ function settingsDialog() {
     uploadIntervals.sort(([a], [b]) => a - b);
   }
   const pointFields = settings.schedule.measurement_points.map((point) => `<label>${escapeHtml(point.measurement_point)} · Minuten<input name="point:${escapeHtml(point.measurement_point)}" type="number" step="0.5" min="0.5" max="1440" value="${point.interval_seconds / 60}" required></label>`).join('');
+  const calibrationFields = settings.schedule.measurement_points.map((point) => {
+    const configured = settings.calibration?.measurement_points?.find((candidate) => candidate.measurement_point === point.measurement_point);
+    const offset = configured?.temperature_offset_c ?? 0;
+    const pointName = state.data.measurement_points?.find((candidate) => candidate.code === point.measurement_point)?.name || point.measurement_point;
+    const pointLabel = pointName === point.measurement_point ? pointName : `${pointName} (${point.measurement_point})`;
+    return `<label>Messstelle ${escapeHtml(pointLabel)} · Abgleich °C<input name="calibration:${escapeHtml(point.measurement_point)}" type="number" step="0.001" min="-10" max="10" value="${escapeHtml(offset)}" required></label>`;
+  }).join('');
   const batteryFields = ['mains', 'battery_unmonitored'].includes(state.data.selected_device.battery.power_source)
     ? `<input type="hidden" name="low" value="${settings.battery.low_threshold_mv}"><input type="hidden" name="full" value="${settings.battery.full_threshold_mv}">`
     : `<label>Batterie niedrig mV<input name="low" type="number" min="0" max="10000" value="${settings.battery.low_threshold_mv}" required></label><label>Batterie voll mV<input name="full" type="number" min="0" max="10000" value="${settings.battery.full_threshold_mv}" required></label>`;
-  openDialog({ heading: state.data.selected_device.name, kicker: `Geräteeinstellungen · Version ${settings.config_version}`, html: `<form id="settings-form"><fieldset><legend>Grenzwerte</legend><div class="form-grid"><label>Temperaturalarm<select name="enabled"><option value="true" ${settings.alarm.enabled ? 'selected' : ''}>Aktiv</option><option value="false" ${!settings.alarm.enabled ? 'selected' : ''}>Deaktiviert</option></select></label><span></span><label>Minimum °C<input name="min" type="number" step="0.1" min="-100" max="150" value="${settings.alarm.temperature_min_c ?? ''}"></label><label>Maximum °C<input name="max" type="number" step="0.1" min="-100" max="150" value="${settings.alarm.temperature_max_c ?? ''}"></label>${batteryFields}</div></fieldset><fieldset><legend>Messung und Übertragung</legend><div class="form-grid"><label>Standard-Messintervall · Minuten<input name="default-interval" type="number" step="0.5" min="0.5" max="1440" value="${settings.schedule.default_measurement_interval_seconds / 60}" required></label><label>Übertragungsintervall<select name="upload-interval-seconds">${uploadIntervals.map(([seconds, label]) => `<option value="${seconds}" ${seconds === currentUploadInterval ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select></label>${pointFields}</div><p class="form-note">Die Firmware bestätigt die übernommene Version beim nächsten HTTPS-Kontakt. Messwerte bleiben während WLAN-Ausfällen lokal gepuffert.</p></fieldset><div class="form-message" hidden></div><div class="dialog-actions"><button class="secondary-button" type="button" data-cancel>Abbrechen</button><button class="secondary-button" type="reset">Eingaben zurücksetzen</button><button class="primary-button" type="submit">Versioniert speichern</button></div></form>`, onOpen(root) {
+  const sensorName = state.data.selected_measurement_point?.sensor_type || state.data.selected_device.device_info?.sensor_model || 'Sensor';
+  openDialog({ heading: state.data.selected_device.name, kicker: `Geräteeinstellungen · Version ${settings.config_version}`, html: `<form id="settings-form"><fieldset><legend>Grenzwerte</legend><div class="form-grid"><label>Temperaturalarm<select name="enabled"><option value="true" ${settings.alarm.enabled ? 'selected' : ''}>Aktiv</option><option value="false" ${!settings.alarm.enabled ? 'selected' : ''}>Deaktiviert</option></select></label><span></span><label>Minimum °C<input name="min" type="number" step="0.1" min="-100" max="150" value="${settings.alarm.temperature_min_c ?? ''}"></label><label>Maximum °C<input name="max" type="number" step="0.1" min="-100" max="150" value="${settings.alarm.temperature_max_c ?? ''}"></label>${batteryFields}</div></fieldset><fieldset><legend>Messung und Übertragung</legend><div class="form-grid"><label>Standard-Messintervall · Minuten<input name="default-interval" type="number" step="0.5" min="0.5" max="1440" value="${settings.schedule.default_measurement_interval_seconds / 60}" required></label><label>Übertragungsintervall<select name="upload-interval-seconds">${uploadIntervals.map(([seconds, label]) => `<option value="${seconds}" ${seconds === currentUploadInterval ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}</select></label>${pointFields}</div><p class="form-note">Die Firmware bestätigt die übernommene Version beim nächsten HTTPS-Kontakt. Messwerte bleiben während WLAN-Ausfällen lokal gepuffert.</p></fieldset><fieldset><legend>Temperaturabgleich</legend><p class="form-note">Angezeigter Wert = Rohwert + Abgleich. Zeigt der Sensor 3 °C zu viel, geben Sie −3 °C ein. Vergleichen Sie die Lufttemperatur direkt neben dem ${escapeHtml(sensorName)} mit einem Referenzthermometer, nicht mit einer Infrarot-Oberflächentemperatur. Der Abgleich gilt für neue Messungen; bisherige Messwerte bleiben erhalten.</p><div class="form-grid">${calibrationFields}</div></fieldset><div class="form-message" hidden></div><div class="dialog-actions"><button class="secondary-button" type="button" data-cancel>Abbrechen</button><button class="secondary-button" type="reset">Eingaben zurücksetzen</button><button class="primary-button" type="submit">Versioniert speichern</button></div></form>`, onOpen(root) {
     root.querySelector('[data-cancel]').addEventListener('click', closeDialog);
-    root.querySelector('form').addEventListener('submit', async (event) => { event.preventDefault(); const form = event.currentTarget; const values = new FormData(form); const min = values.get('min') === '' ? null : Number(values.get('min')); const max = values.get('max') === '' ? null : Number(values.get('max')); const measurementPoints = settings.schedule.measurement_points.map((point) => ({ measurement_point: point.measurement_point, interval_seconds: Math.round(Number(values.get(`point:${point.measurement_point}`)) * 60) })); try { await api(`/api/v1/dashboard/devices/${encodeURIComponent(state.device)}/settings`, { method: 'PUT', body: { expected_config_version: settings.config_version, alarm: { enabled: values.get('enabled') === 'true', temperature_min_c: min, temperature_max_c: max }, battery: { low_threshold_mv: Number(values.get('low')), full_threshold_mv: Number(values.get('full')) }, schedule: { default_measurement_interval_seconds: Math.round(Number(values.get('default-interval')) * 60), upload_interval_seconds: Number(values.get('upload-interval-seconds')), measurement_points: measurementPoints } } }); closeDialog(); context.showMessage('Gerätekonfiguration gespeichert; die Sensorbestätigung steht bis zum nächsten Kontakt aus.', true); await load(); } catch (error) { form.querySelector('.form-message').outerHTML = errorMessage(error); } });
+    root.querySelector('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const values = new FormData(form);
+      const min = values.get('min') === '' ? null : Number(values.get('min'));
+      const max = values.get('max') === '' ? null : Number(values.get('max'));
+      const measurementPoints = settings.schedule.measurement_points.map((point) => ({
+        measurement_point: point.measurement_point,
+        interval_seconds: Math.round(Number(values.get(`point:${point.measurement_point}`)) * 60),
+      }));
+      const calibrationPoints = settings.schedule.measurement_points.map((point) => ({
+        measurement_point: point.measurement_point,
+        temperature_offset_c: Number(values.get(`calibration:${point.measurement_point}`)),
+      }));
+      try {
+        await api(`/api/v1/dashboard/devices/${encodeURIComponent(state.device)}/settings`, { method: 'PUT', body: {
+          expected_config_version: settings.config_version,
+          alarm: { enabled: values.get('enabled') === 'true', temperature_min_c: min, temperature_max_c: max },
+          battery: { low_threshold_mv: Number(values.get('low')), full_threshold_mv: Number(values.get('full')) },
+          schedule: { default_measurement_interval_seconds: Math.round(Number(values.get('default-interval')) * 60), upload_interval_seconds: Number(values.get('upload-interval-seconds')), measurement_points: measurementPoints },
+          calibration: { measurement_points: calibrationPoints },
+        } });
+        closeDialog();
+        context.showMessage('Konfiguration gespeichert. Neue Messungen nutzen den Abgleich; das Messintervall bestätigt der Sensor beim nächsten Kontakt.', true);
+        await load();
+      } catch (error) { form.querySelector('.form-message').outerHTML = errorMessage(error); }
+    });
   } });
 }
 
