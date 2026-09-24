@@ -182,15 +182,39 @@ final readonly class DashboardRepository
         return $statement->fetchAll();
     }
 
+    public function latestMeasurementId(): int
+    {
+        return (int) $this->pdo->query('SELECT MAX(id) FROM measurements')->fetchColumn();
+    }
+
+    public function recentMeasurementCount(int $measurementPointId, int $snapshotId): int
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM measurements
+             WHERE measurement_point_id = :measurement_point_id AND id <= :snapshot_id',
+        );
+        $statement->bindValue(':measurement_point_id', $measurementPointId, PDO::PARAM_INT);
+        $statement->bindValue(':snapshot_id', $snapshotId, PDO::PARAM_INT);
+        $statement->execute();
+
+        return (int) $statement->fetchColumn();
+    }
+
     /** @return list<array<string, mixed>> */
-    public function recentMeasurements(int $measurementPointId): array
+    public function recentMeasurements(int $measurementPointId, int $snapshotId, int $limit, int $offset): array
     {
         $statement = $this->pdo->prepare(
             'SELECT sequence, measured_at, received_at, temperature_c, humidity_rh, battery_mv
-             FROM measurements WHERE measurement_point_id = :measurement_point_id
-             ORDER BY measured_at DESC, sequence DESC LIMIT 20',
+             FROM measurements
+             WHERE measurement_point_id = :measurement_point_id AND id <= :snapshot_id
+             ORDER BY measured_at DESC, sequence DESC
+             LIMIT :limit OFFSET :offset',
         );
-        $statement->execute(['measurement_point_id' => $measurementPointId]);
+        $statement->bindValue(':measurement_point_id', $measurementPointId, PDO::PARAM_INT);
+        $statement->bindValue(':snapshot_id', $snapshotId, PDO::PARAM_INT);
+        $statement->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $statement->bindValue(':offset', $offset, PDO::PARAM_INT);
+        $statement->execute();
 
         return $statement->fetchAll();
     }

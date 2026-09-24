@@ -364,14 +364,42 @@ paths:
         - in: query
           name: hours
           schema: { type: integer, enum: [6, 24, 72, 168], default: 24 }
+        - in: query
+          name: recent_page
+          description: One-based page of recent measurements, with 25 records per page. Out-of-range pages are clamped.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: recent_snapshot_id
+          description: Use recent_pagination.snapshot_id from the first page to keep subsequent pages stable as new measurements arrive.
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: recent_only
+          description: Set to 1 to load only the selected point's recent measurements and pagination metadata, without the chart or fleet data.
+          schema: { type: integer, enum: [1] }
       responses:
         "200":
-          description: Fleet, selected measurement point, current protected photo URLs, chart series, recent values and diagnostics
+          description: Fleet, selected measurement point, current protected photo URLs, chart series, 25 recent values and diagnostics; recent_only=1 returns only selection, recent_measurements and recent_pagination.
           content:
             application/json:
               schema:
                 type: object
-                required: [server_time, window_hours, fleet, devices, series, recent_measurements]
+                required: [selection, recent_measurements, recent_pagination]
+                properties:
+                  recent_measurements:
+                    type: array
+                    maxItems: 25
+                    items: { type: object, additionalProperties: true }
+                  recent_pagination:
+                    type: object
+                    required: [page, per_page, total, total_pages, has_previous, has_next, snapshot_id]
+                    properties:
+                      page: { type: integer, minimum: 1 }
+                      per_page: { type: integer, enum: [25] }
+                      total: { type: integer, minimum: 0 }
+                      total_pages: { type: integer, minimum: 0 }
+                      has_previous: { type: boolean }
+                      has_next: { type: boolean }
+                      snapshot_id: { type: integer, minimum: 0 }
                 additionalProperties: true
         "401":
           $ref: "#/components/responses/Unauthorized"

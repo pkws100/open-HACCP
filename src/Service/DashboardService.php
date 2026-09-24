@@ -12,6 +12,7 @@ use Haccp\Support\Clock;
 final readonly class DashboardService
 {
     private const ALLOWED_WINDOWS = [6, 24, 72, 168];
+    private const RECENT_PAGE_SIZE = 25;
 
     public function __construct(
         private DashboardRepository $dashboard,
@@ -22,7 +23,13 @@ final readonly class DashboardService
     }
 
     /** @return array<string, mixed> */
-    public function overview(?string $requestedDevice, ?string $requestedPoint, int $requestedHours): array
+    public function overview(
+        ?string $requestedDevice,
+        ?string $requestedPoint,
+        int $requestedHours,
+        int $requestedRecentPage = 1,
+        ?int $requestedRecentSnapshotId = null,
+    ): array
     {
         $hours = in_array($requestedHours, self::ALLOWED_WINDOWS, true) ? $requestedHours : 24;
         $now = $this->clock->now();
@@ -54,20 +61,14 @@ final readonly class DashboardService
                 'kpis' => null,
                 'series' => [],
                 'recent_measurements' => [],
+                'recent_pagination' => $this->emptyRecentPagination(),
                 'diagnostics' => null,
                 'settings' => null,
             ];
         }
 
         $points = $this->dashboard->measurementPoints((int) $device['id']);
-        $point = null;
-        foreach ($points as $candidate) {
-            if ($requestedPoint !== null && $candidate['code'] === $requestedPoint) {
-                $point = $candidate;
-                break;
-            }
-        }
-        $point ??= $points[0] ?? null;
+        $point = $this->selectedPoint($points, $requestedPoint);
 
         $result = $base + [
             'selection' => [
@@ -79,6 +80,7 @@ final readonly class DashboardService
             'kpis' => null,
             'series' => [],
             'recent_measurements' => [],
+            'recent_pagination' => $this->emptyRecentPagination(),
             'diagnostics' => $this->transmission($this->dashboard->latestTransmission((int) $device['id'])),
             'settings' => $this->settings($device, $points),
         ];
@@ -109,12 +111,97 @@ final readonly class DashboardService
             ),
         ];
         $result['series'] = array_map(fn (array $row): array => $this->measurement($row), $this->dashboard->series($pointId, $cutoff));
-        $result['recent_measurements'] = array_map(
-            fn (array $row): array => $this->measurement($row, true),
-            $this->dashboard->recentMeasurements($pointId),
-        );
+        $result = array_replace($result, $this->recentData($pointId, $requestedRecentPage, $requestedRecentSnapshotId));
 
         return $result;
+    }
+
+    /** @return array<string, mixed> */
+    public function recent(
+        ?string $requestedDevice,
+        ?string $requestedPoint,
+        int $requestedRecentPage,
+        ?int $requestedRecentSnapshotId,
+    ): array
+    {
+        $device = $requestedDevice === null ? null : $this->dashboard->deviceByUid($requestedDevice);
+        if ($device === null) {
+            $devices = $this->dashboard->devices();
+            $device = $devices[0] ?? null;
+        }
+        if ($device === null) {
+            return [
+                'selection' => null,
+                'recent_measurements' => [],
+                'recent_pagination' => $this->emptyRecentPagination(),
+            ];
+        }
+
+        $point = $this->selectedPoint($this->dashboard->measurementPoints((int) $device['id']), $requestedPoint);
+
+        return [
+            'selection' => [
+                'device_uid' => $device['device_uid'],
+                'measurement_point' => $point['code'] ?? null,
+            ],
+        ] + ($point === null
+            ? ['recent_measurements' => [], 'recent_pagination' => $this->emptyRecentPagination()]
+            : $this->recentData((int) $point['id'], $requestedRecentPage, $requestedRecentSnapshotId));
+    }
+
+    /** @param list<array<string, mixed>> $points @return array<string, mixed>|null */
+    private function selectedPoint(array $points, ?string $requestedPoint): ?array
+    {
+        foreach ($points as $point) {
+            if ($requestedPoint !== null && $point['code'] === $requestedPoint) {
+                return $point;
+            }
+        }
+
+        return $points[0] ?? null;
+    }
+
+    /** @return array{recent_measurements: list<array<string, mixed>>, recent_pagination: array<string, int|bool>} */
+    private function recentData(int $pointId, int $requestedPage, ?int $requestedSnapshotId): array
+    {
+        $latestId = $this->dashboard->latestMeasurementId();
+        $snapshotId = $requestedSnapshotId === null ? $latestId : min($requestedSnapshotId, $latestId);
+        $total = $snapshotId === 0 ? 0 : $this->dashboard->recentMeasurementCount($pointId, $snapshotId);
+        $totalPages = intdiv($total, self::RECENT_PAGE_SIZE) + ($total % self::RECENT_PAGE_SIZE === 0 ? 0 : 1);
+        $page = min(max(1, $requestedPage), max(1, $totalPages));
+        $rows = $total === 0 ? [] : $this->dashboard->recentMeasurements(
+            $pointId,
+            $snapshotId,
+            self::RECENT_PAGE_SIZE,
+            ($page - 1) * self::RECENT_PAGE_SIZE,
+        );
+
+        return [
+            'recent_measurements' => array_map(fn (array $row): array => $this->measurement($row, true), $rows),
+            'recent_pagination' => [
+                'page' => $page,
+                'per_page' => self::RECENT_PAGE_SIZE,
+                'total' => $total,
+                'total_pages' => $totalPages,
+                'has_previous' => $page > 1,
+                'has_next' => $page < $totalPages,
+                'snapshot_id' => $snapshotId,
+            ],
+        ];
+    }
+
+    /** @return array<string, int|bool> */
+    private function emptyRecentPagination(): array
+    {
+        return [
+            'page' => 1,
+            'per_page' => self::RECENT_PAGE_SIZE,
+            'total' => 0,
+            'total_pages' => 0,
+            'has_previous' => false,
+            'has_next' => false,
+            'snapshot_id' => 0,
+        ];
     }
 
     /** @param array<string, mixed> $row @return array<string, mixed> */
