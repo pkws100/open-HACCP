@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b1212">
   <title>Open HACCP Monitor</title>
   <script src="/assets/theme-bootstrap.js?v=20260810-1"></script>
-  <link rel="stylesheet" href="/assets/dashboard.css?v=20260924-7">
+  <link rel="stylesheet" href="/assets/dashboard.css?v=20260925-1">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Zum Inhalt springen</a>
@@ -92,14 +92,40 @@
       </section>
 
       <section class="view" data-view="analysis" aria-labelledby="analysis-title" hidden>
-        <header class="view-heading"><div><p class="eyebrow">Systemanalyse</p><h1 id="analysis-title">Flottenzustand</h1><p>Messqualität, technische Ereignisse und Batterietrend in einem gemeinsamen Zeitraum.</p></div></header>
+        <header class="view-heading"><div><p class="eyebrow">Systemanalyse</p><h1 id="analysis-title">Flottenzustand</h1><p>Messwerte, Ereignisse, Stromversorgung und Verbindung im gewählten Zeitraum. Berühren Sie ein Diagramm oder nutzen Sie die Pfeiltasten für Details.</p></div></header>
         <div class="filter-bar"><label>Gerät<select id="analysis-device"><option value="">Gesamte Flotte</option></select></label><label>Messstelle<select id="analysis-point"><option value="">Alle Messstellen</option></select></label><div class="segmented" aria-label="Analysezeitraum"><button type="button" data-days="7">7 T</button><button type="button" data-days="30" class="is-active">30 T</button><button type="button" data-days="90">90 T</button></div></div>
+        <p class="analysis-scope" id="analysis-scope"></p>
         <div class="metric-line" id="analysis-metrics"></div>
         <div class="analysis-grid">
-          <section class="chart-stage wide"><div class="section-heading"><div><p class="eyebrow">Messwerte</p><h2>Temperatur und Feuchte</h2></div></div><canvas id="analysis-measurements" height="290"></canvas><div id="analysis-measurements-table" class="sr-only"></div></section>
-          <section class="chart-stage"><div class="section-heading"><div><p class="eyebrow">Fehlerbild</p><h2>Ereignisse nach Tag</h2></div></div><canvas id="analysis-events" height="260"></canvas><div id="analysis-events-table" class="sr-only"></div></section>
-          <section class="chart-stage"><div class="section-heading"><div><p class="eyebrow">Energie</p><h2>Batterietrend</h2></div><strong id="battery-eta">–</strong></div><canvas id="analysis-battery" height="260"></canvas><p class="support-copy" id="battery-note"></p><div id="analysis-battery-table" class="sr-only"></div></section>
-          <section class="chart-stage wide"><div class="section-heading"><div><p class="eyebrow">Verbindung</p><h2>Signal und Übertragungen</h2></div></div><canvas id="analysis-connections" height="250"></canvas><div id="analysis-connections-table" class="sr-only"></div></section>
+          <section class="chart-stage wide analysis-panel" aria-labelledby="analysis-measurements-title">
+            <div class="section-heading"><div><p class="eyebrow">Messwerte</p><h2 id="analysis-measurements-title">Temperatur und Luftfeuchtigkeit</h2></div><div class="analysis-chart-focus"><label class="analysis-chart-device" id="analysis-chart-device-wrap">Verlauf für<select id="analysis-chart-device"></select></label><label class="analysis-chart-device" id="analysis-chart-point-wrap" hidden>Messstelle<select id="analysis-chart-point"></select></label></div></div>
+            <p class="support-copy" id="analysis-measurements-note">Temperatur und Feuchte haben eigene Skalen. Werte verschiedener Geräte werden nicht verbunden.</p>
+            <div class="chart-legend" aria-label="Messreihen ein- oder ausblenden"><button type="button" class="chart-series-toggle" data-analysis-toggle="temperature" aria-pressed="true"><span class="chart-key chart-key-temperature" aria-hidden="true"></span>Temperatur <small>°C</small></button><button type="button" class="chart-series-toggle" data-analysis-toggle="humidity" aria-pressed="true"><span class="chart-key chart-key-humidity" aria-hidden="true"></span>Luftfeuchtigkeit <small>% rF</small></button></div>
+            <div class="chart-readout analysis-readout"><strong id="analysis-measurements-time">–</strong><span id="analysis-measurements-temperature">Temperatur –</span><span id="analysis-measurements-humidity">Luftfeuchtigkeit –</span><button type="button" class="chart-latest-button" data-analysis-latest="measurements" hidden>Letzter Wert</button></div>
+            <canvas id="analysis-measurements" height="380" role="slider" aria-label="Messzeitpunkt auswählen" aria-describedby="analysis-measurements-hint" tabindex="0"></canvas>
+            <p class="chart-interaction-hint" id="analysis-measurements-hint">Kurve berühren oder mit den Pfeiltasten einen Messzeitpunkt auswählen.</p><p class="analysis-empty" id="analysis-measurements-empty" hidden>Für diesen Zeitraum liegen keine Messwerte vor.</p><div id="analysis-measurements-table" class="sr-only"></div>
+          </section>
+          <section class="chart-stage analysis-panel" aria-labelledby="analysis-events-title">
+            <div class="section-heading"><div><p class="eyebrow">Ereignisse</p><h2 id="analysis-events-title">Neu eröffnet nach Tag</h2></div></div>
+            <p class="support-copy">Balken zählen neu eröffnete Ereignisse am UTC-Tag. Offene Ereignisse oben sind der aktuelle Bearbeitungsstand.</p>
+            <div class="chart-legend" aria-label="Schweregrade"><span class="analysis-legend-item"><i class="analysis-key analysis-key-warning" aria-hidden="true"></i>Warnung</span><span class="analysis-legend-item"><i class="analysis-key analysis-key-critical" aria-hidden="true"></i>Kritisch</span></div>
+            <div class="chart-readout analysis-readout"><strong id="analysis-events-day">–</strong><span id="analysis-events-count">–</span><button type="button" class="chart-latest-button" data-analysis-latest="events" hidden>Letzter Tag</button></div>
+            <canvas id="analysis-events" height="275" role="slider" aria-label="Ereignistag auswählen" aria-describedby="analysis-events-hint" tabindex="0"></canvas><p class="chart-interaction-hint" id="analysis-events-hint">Balken berühren oder mit den Pfeiltasten einen Tag auswählen.</p><p class="analysis-event-breakdown" id="analysis-events-breakdown"></p><div id="analysis-events-table" class="sr-only"></div>
+          </section>
+          <section class="chart-stage analysis-panel" aria-labelledby="analysis-battery-title">
+            <div class="section-heading"><div><p class="eyebrow">Energie</p><h2 id="analysis-battery-title">Batteriespannung</h2></div><strong id="battery-eta">–</strong></div>
+            <p class="support-copy">Eine Prognose erscheint nur bei tatsächlich gemessener Spannung und ausreichend langem, fallendem Verlauf.</p>
+            <div class="chart-legend" aria-label="Batteriewerte"><span class="analysis-legend-item"><i class="analysis-key analysis-key-battery" aria-hidden="true"></i>Gemessene Spannung · mV</span><span class="analysis-legend-item" id="analysis-battery-threshold-legend" hidden><i class="analysis-key analysis-key-threshold" aria-hidden="true"></i>Niedrigschwelle</span></div>
+            <div class="chart-readout analysis-readout" id="analysis-battery-readout"><strong id="analysis-battery-time">–</strong><span id="analysis-battery-value">Spannung –</span><button type="button" class="chart-latest-button" data-analysis-latest="battery" hidden>Letzter Wert</button></div>
+            <canvas id="analysis-battery" height="275" role="slider" aria-label="Batteriemesszeitpunkt auswählen" aria-describedby="analysis-battery-hint" tabindex="0"></canvas><p class="chart-interaction-hint" id="analysis-battery-hint">Kurve berühren oder mit den Pfeiltasten einen Messzeitpunkt auswählen.</p><p class="analysis-empty" id="analysis-battery-empty" hidden></p><p class="support-copy" id="battery-note"></p><div id="analysis-battery-table" class="sr-only"></div>
+          </section>
+          <section class="chart-stage wide analysis-panel" aria-labelledby="analysis-connections-title">
+            <div class="section-heading"><div><p class="eyebrow">Verbindung</p><h2 id="analysis-connections-title">Funksignal und Übertragungen</h2></div></div>
+            <p class="support-copy" id="analysis-connections-note">Täglicher Mittelwert des WLAN-Signals und Anzahl der Übertragungen – auf getrennten Skalen. Fehlende Signaldaten bleiben offen.</p>
+            <div class="chart-legend" aria-label="Verbindungsreihen ein- oder ausblenden"><button type="button" class="chart-series-toggle" data-analysis-toggle="rssi" aria-pressed="true"><span class="chart-key chart-key-temperature" aria-hidden="true"></span>Ø Funksignal <small>dBm</small></button><button type="button" class="chart-series-toggle" data-analysis-toggle="transmissions" aria-pressed="true"><span class="chart-key chart-key-humidity" aria-hidden="true"></span>Übertragungen <small>pro Tag</small></button></div>
+            <div class="chart-readout analysis-readout"><strong id="analysis-connections-day">–</strong><span id="analysis-connections-rssi">Funksignal –</span><span id="analysis-connections-count">Übertragungen –</span><button type="button" class="chart-latest-button" data-analysis-latest="connections" hidden>Letzter Tag</button></div>
+            <canvas id="analysis-connections" height="350" role="slider" aria-label="Verbindungstag auswählen" aria-describedby="analysis-connections-hint" tabindex="0"></canvas><p class="chart-interaction-hint" id="analysis-connections-hint">Kurve berühren oder mit den Pfeiltasten einen Tag auswählen.</p><p class="analysis-empty" id="analysis-connections-empty" hidden>Für diesen Zeitraum liegen keine Übertragungen vor.</p><div id="analysis-connections-table" class="sr-only"></div>
+          </section>
         </div>
       </section>
 
@@ -132,6 +158,6 @@
   </div>
 
   <dialog id="app-dialog" class="app-dialog"><div class="dialog-frame"><header><div><p class="eyebrow" id="dialog-eyebrow">Bearbeiten</p><h2 id="dialog-title">Eintrag</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Dialog schließen">×</button></header><div id="dialog-content"></div></div></dialog>
-  <script type="module" src="/assets/app.js?v=20260924-6"></script>
+  <script type="module" src="/assets/app.js?v=20260925-1"></script>
 </body>
 </html>

@@ -235,6 +235,25 @@ td small { display: block; margin-top: 3px; color: var(--faint); }
 
 .analysis-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .analysis-grid .wide { grid-column: 1 / -1; }
+.analysis-scope { margin: -8px 0 20px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.analysis-panel .section-heading { align-items: flex-start; margin-bottom: 4px; }
+.analysis-panel .support-copy { margin: 0 0 14px; }
+.analysis-panel .chart-legend { min-height: 44px; margin-bottom: 8px; align-items: center; }
+.analysis-chart-focus { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.analysis-chart-device { display: grid; gap: 4px; min-width: 190px; max-width: 250px; color: var(--muted); font-size: 11px; font-weight: 600; }
+.analysis-chart-device select { min-width: 0; min-height: 38px; }
+.analysis-legend-item { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; color: var(--text-soft); font-size: 12px; }
+.analysis-key { display: inline-block; width: 22px; height: 0; flex: 0 0 auto; border-top: 3px solid var(--accent); }
+.analysis-key-warning { border-color: var(--warning); }
+.analysis-key-critical, .analysis-key-threshold { border-color: var(--danger); }
+.analysis-key-battery { border-color: var(--warning); }
+.analysis-key-threshold { border-top-style: dashed; }
+.analysis-readout { margin-bottom: 5px; }
+.analysis-readout > span { color: var(--text-soft); }
+.analysis-event-breakdown { min-height: 32px; margin: 8px 0 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.analysis-empty { margin: 12px 0; padding: 20px 16px; border: 1px dashed var(--line); border-radius: 9px; color: var(--muted); background: var(--surface-2); font-size: 12px; line-height: 1.5; text-align: center; }
+.analysis-panel canvas { cursor: crosshair; touch-action: pan-y; }
+.analysis-panel canvas:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .support-copy { color: var(--muted); font-size: 11px; line-height: 1.5; margin: 10px 0 0; }
 .export-layout { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(260px, .6fr); gap: 20px; }
 .editor-panel, .export-guidance { padding: 24px; }
@@ -336,6 +355,11 @@ legend { color: var(--muted); font-size: 11px; padding: 0 6px; }
   .focus-actions > * { flex: 1 1 calc(50% - 4px); min-height: 44px; }
   .form-grid, .form-grid.three, .check-grid { grid-template-columns: 1fr; }
   .chart-stage { padding: 16px 12px; }
+  .analysis-panel .section-heading { flex-wrap: wrap; gap: 10px; }
+  .analysis-chart-focus { width: 100%; justify-content: stretch; }
+  .analysis-chart-device { width: 100%; max-width: none; }
+  .analysis-readout { gap: 4px 12px; }
+  .analysis-readout > span { flex: 1 1 100%; }
   .chart-readout { align-items: flex-start; }
   .chart-readout strong { flex: 1 0 100%; }
   .chart-latest-button { margin-left: 0; }

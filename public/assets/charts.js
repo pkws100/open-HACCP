@@ -95,8 +95,9 @@ function medianInterval(points) {
   return intervals.length % 2 ? intervals[middle] : (intervals[middle - 1] + intervals[middle]) / 2;
 }
 
-function sensorPane(context, colors, pane, left, right, values, label, unit, color, dashed) {
-  const [minimum, maximum] = domain(values, unit === '°C' ? [0, 1] : [0, 100]);
+function sensorPane(context, colors, pane, left, right, values, label, unit, color, dashed,
+  fallback = unit === '°C' ? [0, 1] : [0, 100]) {
+  const [minimum, maximum] = domain(values, fallback);
   context.save();
   context.font = '600 11px Inter, system-ui';
   context.fillStyle = color;
@@ -109,7 +110,7 @@ function sensorPane(context, colors, pane, left, right, values, label, unit, col
   context.lineTo(left + 16, pane.heading - 4);
   context.stroke();
   context.setLineDash([]);
-  context.fillText(`${label} · ${unit}`, left + 23, pane.heading);
+  context.fillText(unit ? `${label} · ${unit}` : label, left + 23, pane.heading);
   context.font = '10px Inter, system-ui';
   context.fillStyle = colors.text;
   context.textAlign = 'right';
@@ -261,6 +262,163 @@ export function sensorTrendChart(canvas, rows, options = {}) {
       context.fill();
       context.stroke();
     }
+  }
+  context.restore();
+  return { positions, left, right, width, height };
+}
+
+function metricTime(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'number') return value;
+  if (typeof value !== 'string' || !value.trim()) return NaN;
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(trimmed)) {
+    const iso = trimmed.replace(' ', 'T');
+    return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}Z`).getTime();
+  }
+  return new Date(trimmed).getTime();
+}
+
+/** One or two numeric series with separate scales; selection indices refer to input rows. */
+export function metricTrendChart(canvas, rows, options = {}) {
+  const definitions = options.series || [];
+  if (definitions.length < 1 || definitions.length > 2) {
+    throw new RangeError('metricTrendChart requires one or two series');
+  }
+  const colors = palette();
+  const { context, width, height } = setup(canvas);
+  const left = 56;
+  const right = width - 16;
+  const timeKey = options.timeKey || 'at';
+  const points = rows.map((row, index) => ({
+    index,
+    time: metricTime(row[timeKey]),
+    values: definitions.map((definition) => sensorValue(row[definition.key])),
+  })).filter((point) => Number.isFinite(point.time))
+    .sort((first, second) => first.time - second.time || first.index - second.index);
+  const readings = points.filter((point) => point.values.some((value) => value !== null));
+  const explicitStart = metricTime(options.startAt);
+  const explicitEnd = metricTime(options.endAt);
+  let minTime = Number.isFinite(explicitStart) ? explicitStart : readings[0]?.time ?? Date.now() - 60 * 60 * 1000;
+  let maxTime = Number.isFinite(explicitEnd) ? explicitEnd : readings.at(-1)?.time ?? minTime + 60 * 60 * 1000;
+  if (minTime > maxTime) [minTime, maxTime] = [maxTime, minTime];
+  if (minTime === maxTime) { minTime -= 30 * 60 * 1000; maxTime += 30 * 60 * 1000; }
+  const showDates = maxTime - minTime >= 24 * 60 * 60 * 1000;
+  const top = 12;
+  const bottom = showDates ? 42 : 28;
+  const heading = 22;
+  const gap = 18;
+  const paneHeight = Math.max(24, (height - top - bottom - heading * definitions.length - gap * (definitions.length - 1)) /
+    definitions.length);
+  const panes = definitions.map((_, index) => {
+    const paneTop = top + index * (heading + paneHeight + gap);
+    return { heading: paneTop + 10, top: paneTop + heading, bottom: paneTop + heading + paneHeight };
+  });
+  const visible = points.filter((point) => point.time >= minTime && point.time <= maxTime);
+  const xAt = (time) => left + (time - minTime) / (maxTime - minTime) * (right - left);
+  const positions = visible.filter((point) => point.values.some((value) => value !== null))
+    .map((point) => ({ index: point.index, x: xAt(point.time) }));
+  const limits = definitions.map((definition, seriesIndex) => {
+    const values = visible.map((point) => point.values[seriesIndex]).filter((value) => value !== null);
+    const reference = sensorValue(definition.reference?.value);
+    if (reference !== null) values.push(reference);
+    return sensorPane(context, colors, panes[seriesIndex], left, right, values,
+      definition.label || definition.key, definition.unit || '',
+      definition.color || (seriesIndex ? colors.humidity : colors.accent), Boolean(definition.dashed), [0, 1]);
+  });
+  const yAt = (value, pane, range) => pane.bottom - (value - range.minimum) /
+    (range.maximum - range.minimum) * (pane.bottom - pane.top);
+
+  definitions.forEach((definition, seriesIndex) => {
+    const value = sensorValue(definition.reference?.value);
+    if (value === null) return;
+    const y = yAt(value, panes[seriesIndex], limits[seriesIndex]);
+    context.save();
+    context.strokeStyle = definition.reference.color || colors.danger;
+    context.lineWidth = 1.5;
+    context.setLineDash(definition.reference.dashed === false ? [] : [4, 4]);
+    context.beginPath();
+    context.moveTo(left, y);
+    context.lineTo(right, y);
+    context.stroke();
+    context.restore();
+  });
+
+  definitions.forEach((definition, seriesIndex) => {
+    const color = definition.color || (seriesIndex ? colors.humidity : colors.accent);
+    const dashed = Boolean(definition.dashed);
+    const validPoints = visible.filter((point) => point.values[seriesIndex] !== null);
+    const typicalInterval = medianInterval(validPoints);
+    const gapThreshold = typicalInterval > 30 * 60 * 1000
+      ? 3 * typicalInterval
+      : Math.min(30 * 60 * 1000, 3 * typicalInterval || 30 * 60 * 1000);
+    context.save();
+    context.strokeStyle = color;
+    context.fillStyle = color;
+    context.lineWidth = 2;
+    context.lineJoin = 'round';
+    context.lineCap = 'round';
+    context.setLineDash(dashed ? [5, 4] : []);
+    context.beginPath();
+    let previous = null;
+    let last = null;
+    for (const point of visible) {
+      const value = point.values[seriesIndex];
+      if (value === null) { previous = null; continue; }
+      const x = xAt(point.time);
+      const y = yAt(value, panes[seriesIndex], limits[seriesIndex]);
+      if (previous && point.time - previous.time <= gapThreshold) context.lineTo(x, y);
+      else context.moveTo(x, y);
+      previous = point;
+      last = { x, y };
+    }
+    context.stroke();
+    context.setLineDash([]);
+    if (last) {
+      context.beginPath();
+      context.arc(last.x, last.y, 2.5, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.restore();
+  });
+
+  context.save();
+  context.font = '10px Inter, system-ui';
+  context.fillStyle = colors.text;
+  const clock = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const calendar = showDates && new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit' });
+  for (const [time, x, align] of [
+    [minTime, left, 'left'],
+    [(minTime + maxTime) / 2, (left + right) / 2, 'center'],
+    [maxTime, right, 'right'],
+  ]) {
+    context.textAlign = align;
+    if (calendar) context.fillText(calendar.format(new Date(time)), x, height - 19);
+    context.fillText(clock.format(new Date(time)), x, height - 7);
+  }
+  const selected = visible.find((point) => point.index === options.selectedIndex &&
+    point.values.some((value) => value !== null));
+  if (selected) {
+    const x = xAt(selected.time);
+    context.strokeStyle = colors.text;
+    context.lineWidth = 1;
+    context.setLineDash([3, 4]);
+    context.beginPath();
+    context.moveTo(x, panes[0].top);
+    context.lineTo(x, panes.at(-1).bottom);
+    context.stroke();
+    context.setLineDash([]);
+    selected.values.forEach((value, seriesIndex) => {
+      if (value === null) return;
+      context.beginPath();
+      context.fillStyle = colors.surface;
+      context.strokeStyle = definitions[seriesIndex].color ||
+        (seriesIndex ? colors.humidity : colors.accent);
+      context.lineWidth = 2;
+      context.arc(x, yAt(value, panes[seriesIndex], limits[seriesIndex]), 5, 0, Math.PI * 2);
+      context.fill();
+      context.stroke();
+    });
   }
   context.restore();
   return { positions, left, right, width, height };

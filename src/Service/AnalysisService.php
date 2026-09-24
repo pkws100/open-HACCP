@@ -29,8 +29,13 @@ final readonly class AnalysisService
         $now = $this->clock->now();
         $from = $this->clock->database($now->modify(sprintf('-%d days', $days)));
         $to = $this->clock->database($now);
-        $measurements = $this->analysis->measurements($from, $to, $deviceUid, $pointId);
-        $battery = $this->batteryForecast($measurements, $deviceUid);
+        $measurementSample = $this->analysis->sampledMeasurements($from, $to, $deviceUid, $pointId);
+        $measurements = $measurementSample['rows'];
+        // The forecast uses every battery reading in the last 30 days. Chart
+        // sampling and point selection must not alter its regression.
+        $batteryFrom = max($from, $this->clock->database($now->modify('-30 days')));
+        $batteryReadings = $deviceUid === null ? [] : $this->analysis->batteryMeasurements($batteryFrom, $to, $deviceUid);
+        $battery = $this->batteryForecast($batteryReadings, $deviceUid);
         $kpis = $this->analysis->fleetKpis($from, $to, $deviceUid, $pointId);
         foreach ($kpis as $key => $value) {
             $kpis[$key] = (int) $value;
@@ -53,7 +58,22 @@ final readonly class AnalysisService
         return [
             'range' => ['days' => $days, 'from' => $from, 'to' => $to],
             'filters' => ['device' => $deviceUid, 'measurement_point_id' => $pointId],
+            'scopes' => [
+                'measurements' => $pointId !== null ? 'measurement_point' : ($deviceUid !== null ? 'device' : 'fleet'),
+                'events' => $pointId !== null ? 'measurement_point' : ($deviceUid !== null ? 'device' : 'fleet'),
+                'connections' => $deviceUid !== null ? 'device' : 'fleet',
+                'availability' => $deviceUid !== null ? 'device' : 'fleet',
+                'rejections' => $deviceUid !== null ? 'device' : 'fleet',
+                'battery' => $deviceUid !== null ? 'device' : 'fleet',
+                'open_events' => 'current',
+            ],
             'fleet' => $kpis,
+            'measurements_sampling' => [
+                'total_count' => $measurementSample['total_count'],
+                'returned_count' => count($measurements),
+                'sampled' => $measurementSample['sampled'],
+                'method' => $measurementSample['sampled'] ? 'per_point_time_bucket_extrema' : 'all',
+            ],
             'measurements' => array_map(static fn (array $row): array => [
                 'measured_at' => $row['measured_at'],
                 'temperature_c' => (float) $row['temperature_c'],
@@ -65,7 +85,7 @@ final readonly class AnalysisService
                 'device_uid' => $row['device_uid'],
                 'point_code' => $row['point_code'],
             ], $measurements),
-            'events_by_day' => $this->analysis->eventDaily($from, $to, $deviceUid),
+            'events_by_day' => $this->analysis->eventDaily($from, $to, $deviceUid, $pointId),
             'connections_by_day' => $this->analysis->transmissionDaily($from, $to, $deviceUid),
             'availability' => $availability,
             'battery' => $battery,
@@ -119,7 +139,7 @@ final readonly class AnalysisService
         $start = $points[0]['timestamp'];
         $spanDays = (end($points)['timestamp'] - $start) / 86400;
         if (count($points) < 20 || $spanDays < 7) {
-            return ['status' => 'insufficient_data', 'estimated_days_remaining' => null, 'confidence' => null, 'low_threshold_mv' => $low, 'series' => $points];
+            return ['status' => 'insufficient_data', 'estimated_days_remaining' => null, 'confidence' => null, 'low_threshold_mv' => $low, 'series' => $this->sampleBatterySeries($points)];
         }
         $xs = array_map(static fn (array $point): float => ($point['timestamp'] - $start) / 86400, $points);
         $ys = array_column($points, 'mv');
@@ -142,7 +162,7 @@ final readonly class AnalysisService
         }
         $r2 = $ssTotal === 0.0 ? 0.0 : max(0.0, 1 - ($ssResidual / $ssTotal));
         if ($slope >= -0.1) {
-            return ['status' => 'non_declining', 'estimated_days_remaining' => null, 'confidence' => null, 'low_threshold_mv' => $low, 'slope_mv_per_day' => round($slope, 3), 'series' => $points];
+            return ['status' => 'non_declining', 'estimated_days_remaining' => null, 'confidence' => null, 'low_threshold_mv' => $low, 'slope_mv_per_day' => round($slope, 3), 'series' => $this->sampleBatterySeries($points)];
         }
         $latest = (int) end($points)['mv'];
         $eta = max(0, min(730, (int) round(($latest - $low) / abs($slope))));
@@ -158,7 +178,22 @@ final readonly class AnalysisService
             'span_days' => round($spanDays, 1),
             'low_threshold_mv' => $low,
             'trend' => ['start_mv' => round($intercept, 1), 'end_mv' => round($intercept + $slope * end($xs), 1)],
-            'series' => $points,
+            'series' => $this->sampleBatterySeries($points),
         ];
+    }
+
+    /** @param list<array<string, mixed>> $points @return list<array<string, mixed>> */
+    private function sampleBatterySeries(array $points): array
+    {
+        if (count($points) <= 1000) {
+            return $points;
+        }
+        $last = count($points) - 1;
+        $sample = [];
+        for ($index = 0; $index < 1000; $index++) {
+            $sample[] = $points[(int) round($index * $last / 999)];
+        }
+
+        return $sample;
     }
 }
