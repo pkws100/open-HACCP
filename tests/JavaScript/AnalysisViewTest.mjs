@@ -227,3 +227,11 @@ test('arrow keys and pointer selection update the accessible measurement readout
   assert.equal(canvas.attributes.get('aria-valuenow'), '3');
   assert.equal(elements.get('#analysis-measurements-time').textContent.includes('08:10'), true);
 });
+
+test('calibrated temperatures retain three decimals in the visible and accessible readout', () => {
+  const { view, elements } = fixture();
+  view.state.data = response({ measurements: [sample('device-a', 'point-1', 0, 4.125)] });
+  view.render();
+  assert.equal(elements.get('#analysis-measurements-temperature').textContent, 'Temperatur 4,125 °C');
+  assert.match(elements.get('#analysis-measurements').attributes.get('aria-valuetext'), /4,125 °C/);
+});

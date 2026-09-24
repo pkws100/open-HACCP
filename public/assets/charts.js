@@ -274,7 +274,8 @@ function metricTime(value) {
   const trimmed = value.trim();
   if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}/.test(trimmed)) {
     const iso = trimmed.replace(' ', 'T');
-    return new Date(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}Z`).getTime();
+    const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : iso + 'Z';
+    return new Date(zoned.replace(/(\.\d{3})\d+(?=Z|[+-]\d{2}:?\d{2}$)/i, '$1')).getTime();
   }
   return new Date(trimmed).getTime();
 }

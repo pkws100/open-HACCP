@@ -123,6 +123,20 @@ test('SQL timestamps with an explicit offset retain that offset', () => {
   assert.equal(geometry.positions[0].x, (geometry.left + geometry.right) / 2);
 });
 
+test('six-digit SQL fractions are normalized to ISO milliseconds', () => {
+  const fixture = canvasFixture();
+  const geometry = metricTrendChart(fixture.canvas, [
+    { at: '2026-09-24 08:00:00.500000', value: 7 },
+  ], {
+    series: [{ key: 'value', label: 'Wert', unit: '°C' }],
+    startAt: '2026-09-24 08:00:00.000000',
+    endAt: '2026-09-24 08:00:01.000000',
+  });
+
+  assert.equal(geometry.positions.length, 1);
+  assert.equal(geometry.positions[0].x, (geometry.left + geometry.right) / 2);
+});
+
 test('a battery reference is dashed and included in the voltage scale', () => {
   const fixture = canvasFixture();
   metricTrendChart(fixture.canvas, [

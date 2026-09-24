@@ -1,5 +1,5 @@
 import { api } from '../api.js?v=20260810-1';
-import { accessibleTable, chartColor, metricTrendChart, observeChartResize } from '../charts.js?v=20260925-1';
+import { accessibleTable, chartColor, metricTrendChart, observeChartResize } from '../charts.js?v=20260925-2';
 import { eventStackChart } from '../analysis-events-chart.js?v=20260925-1';
 import { escapeHtml, eventLabel, formatDate, formatNumber, metric } from '../format.js?v=20260923-1';
 
@@ -10,6 +10,7 @@ const state = {
 const charts = Object.fromEntries(['measurements', 'events', 'battery', 'connections'].map((key) =>
   [key, { rows: [], selectedIndex: -1, pinned: false, geometry: null, ariaText: '' }]));
 const dayFormat = new Intl.DateTimeFormat('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+const preciseTemperature = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 3 });
 let context;
 let requestSequence = 0;
 
@@ -107,7 +108,9 @@ async function loadAnalysis() {
   const params = new URLSearchParams({ days: String(state.days) });
   if (state.device) params.set('device', state.device);
   if (state.point) params.set('measurement_point_id', state.point);
-  const data = await api('/api/v1/dashboard/analysis?' + params);
+  let data;
+  try { data = await api('/api/v1/dashboard/analysis?' + params); }
+  catch (error) { if (sequence === requestSequence) throw error; return; }
   if (sequence !== requestSequence) return;
   state.data = data;
   Object.keys(charts).forEach(resetChart);
@@ -142,7 +145,8 @@ function renderMetrics() {
     (state.point
       ? ' · Messstellenfilter: Messwerte und Ereignisse. Signal, Übertragungen und Verfügbarkeit gelten für das gesamte Gerät.'
       : ' · Verfügbarkeit und Übertragungen beziehen sich auf Geräte.') +
-    ' Die Verfügbarkeit ist eine Schätzung mit dem aktuellen Sendeintervall; bei Taktwechseln im Zeitraum kann sie abweichen.';
+    ' Die Verfügbarkeit ist eine Schätzung mit dem aktuellen Sendeintervall; bei Taktwechseln im Zeitraum kann sie abweichen.' +
+    ' Die Zeiträume sind rollierende 24-Stunden-Tage; der erste und letzte UTC-Kalendertag können deshalb nur teilweise enthalten sein.';
   const availability = data.availability.length
     ? data.availability.reduce((sum, row) => sum + Number(row.availability_percent), 0) / data.availability.length
     : null;
@@ -185,9 +189,9 @@ function renderMeasurements() {
     (state.device ? '' : 'Die Flottenkennzahlen bleiben gemeinsam; die Kurven zeigen ' + deviceName + '. ') +
     'Temperatur und Feuchte haben eigene Skalen. Verschiedene Geräte und Messstellen werden nicht verbunden. ' +
     (sampled?.sampled
-      ? 'Für die Kurven werden ' + formatNumber(sampled.returned_count) +
-        ' echte Messungen über den ganzen Zeitraum ausgewählt; die Kennzahl oben zählt alle ' +
-        formatNumber(sampled.total_count) + '.' : '');
+      ? 'Für die gesamte Filterauswahl wurden ' + formatNumber(sampled.returned_count) + ' von ' +
+        formatNumber(sampled.total_count) + ' echten Messungen zeitlich verteilt ausgewählt; ' +
+        'die aktuelle Kurve zeigt davon ' + formatNumber(rows.length) + '.' : '');
   document.querySelector('#analysis-measurements-empty').hidden = rows.length > 0;
   accessibleTable(document.querySelector('#analysis-measurements-table'), 'Messwerte im dargestellten Verlauf',
     ['Zeitpunkt', 'Gerät', 'Messstelle', 'Temperatur °C', 'Feuchte % rF'],
@@ -245,7 +249,8 @@ function renderBattery() {
 
 function utcMillis(value) {
   const text = String(value).trim().replace(' ', 'T');
-  return Date.parse(/(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : text + 'Z');
+  const zoned = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : text + 'Z';
+  return Date.parse(zoned.replace(/(\.\d{3})\d+(?=Z|[+-]\d{2}:?\d{2}$)/i, '$1'));
 }
 
 function connectionDays(data) {
@@ -359,6 +364,9 @@ function draw(key) {
 }
 
 function dayLabel(day) { return dayFormat.format(new Date(day + 'T12:00:00Z')) + ' (UTC)'; }
+function temperature(value) {
+  return value == null ? '–' : preciseTemperature.format(Number(value)) + ' °C';
+}
 
 function updateReadout(key) {
   const control = charts[key];
@@ -367,9 +375,9 @@ function updateReadout(key) {
     { document.querySelector('#analysis-' + key + '-' + suffix).textContent = value; };
   if (key === 'measurements') {
     set('time', row ? formatDate(row.measured_at) : 'Noch kein Messwert');
-    set('temperature', 'Temperatur ' + (row?.temperature_c == null ? '–' : formatNumber(row.temperature_c, ' °C')));
+    set('temperature', 'Temperatur ' + temperature(row?.temperature_c));
     set('humidity', 'Luftfeuchtigkeit ' + (row?.humidity_rh == null ? '–' : formatNumber(row.humidity_rh, ' % rF')));
-    control.ariaText = row ? formatDate(row.measured_at) + ', Temperatur ' + formatNumber(row.temperature_c, ' °C') +
+    control.ariaText = row ? formatDate(row.measured_at) + ', Temperatur ' + temperature(row.temperature_c) +
       ', Luftfeuchtigkeit ' + formatNumber(row.humidity_rh, ' % rF') : 'Noch kein Messwert';
   } else if (key === 'events') {
     set('day', row ? dayLabel(row.day) : 'Noch kein Tag');

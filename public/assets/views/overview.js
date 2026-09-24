@@ -1,5 +1,5 @@
 import { api } from '../api.js?v=20260810-1';
-import { sensorTrendChart, accessibleTable, observeChartResize } from '../charts.js?v=20260925-1';
+import { sensorTrendChart, accessibleTable, observeChartResize } from '../charts.js?v=20260925-2';
 import { openDialog, closeDialog, errorMessage } from '../dialog.js?v=20260810-1';
 import { alarmLabel, escapeHtml, formatDate, formatNumber, metric, powerLabel, signalIcon, statusPill } from '../format.js?v=20260923-2';
 
