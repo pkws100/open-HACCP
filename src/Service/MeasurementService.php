@@ -41,10 +41,12 @@ final readonly class MeasurementService
         $batch = $this->validator->validateBatchEnvelope($payload);
         $now = $this->clock->now();
         $receivedAt = $this->clock->database($now);
-        $configuration = $this->configService->get($device);
 
         $this->pdo->beginTransaction();
         try {
+            // Keep the response configuration and the measurement-time calibration
+            // timeline on the same database snapshot during concurrent settings saves.
+            $configuration = $this->configService->get($device);
             $diagnostics = $batch['diagnostics'];
             $deviceInfo = $batch['device_info'];
             $operationalStatus = $batch['operational_status'];
