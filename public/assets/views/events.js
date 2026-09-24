@@ -1,6 +1,6 @@
 import { api } from '../api.js?v=20260810-1';
 import { closeDialog, errorMessage, openDialog } from '../dialog.js?v=20260810-1';
-import { escapeHtml, eventLabel, formatDate, statusLabel, statusPill } from '../format.js?v=20260923-1';
+import { escapeHtml, eventLabel, formatDate, statusLabel, statusPill } from '../format.js?v=20260924-1';
 
 const state = { status: 'all', device: '', days: 30, initialized: false };
 let context;

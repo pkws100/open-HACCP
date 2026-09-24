@@ -1,6 +1,6 @@
 # Open HACCP Monitor
 
-Open HACCP is a PHP 8.3/MariaDB backend, ESP32 sensor contract and mobile-first operational dashboard for temperature and humidity monitoring. The current prototype includes Sensor Protocol V1, three-device simulation, device onboarding, protected measurement-point photos, account themes, role-based users, persistent deviations, audit chaining, analyses and background-generated authority/extended exports.
+Open HACCP is a PHP 8.3/MariaDB backend, ESP32/ESP8266 sensor firmware and mobile-first operational dashboard for temperature and humidity monitoring. The current prototype includes Sensor Protocol V1, device onboarding, protected measurement-point photos, account themes, role-based users, persistent deviations, audit chaining, analyses and background-generated authority/extended exports.
 
 It provides operational evidence, but it is neither legal advice nor a HACCP or instrument certification. The export profile must always be checked against the business, product and competent authority.
 
@@ -65,7 +65,7 @@ Never reuse `DEVICE_API_KEY_PEPPER` as `AUDIT_LOG_KEY`. Neither value may be rot
 
 The navigation contains **Übersicht**, **Analyse**, **Abweichungen**, **Exporte**, **Benutzer** and **Betrieb**. Active devices show temperature state, battery status and RSSI bars. Analysis supports 7, 30 and 90 days, device/point filters, temperature/humidity, event distributions, availability/connection quality and battery history.
 
-Administrators and operators can edit device and measurement-point display names and the point location without changing the device UID, point code, key, or measurement history. **Grenzwerte & Takt** saves temperature limits and separate measurement/upload intervals as a new configuration version; the dashboard shows when firmware applies it. Unsaved form changes can be reset. The **Abweichungen** view keeps ongoing events visible beyond the selected history window and records acknowledgements and corrective actions. Humidity is measured and displayed but has no configurable alarm threshold in this version.
+Administrators and operators can edit device and measurement-point display names and the point location without changing the device UID, point code, key, or measurement history. Device settings save temperature limits, separate measurement/upload intervals and a signed temperature offset per measurement point as a new configuration version. The dashboard shows when firmware accepts its updated measurement schedule. The server applies the offset to future measurements and alarms while retaining each original sensor value and the applied correction. Follow the [temperature calibration procedure](docs/TEMPERATURE_CALIBRATION.md) before entering an offset; an infrared surface reading is not directly comparable to DHT22 air temperature. Unsaved form changes can be reset. The **Abweichungen** view keeps ongoing events visible beyond the selected history window and records acknowledgements and corrective actions. Humidity is measured and displayed but has no configurable alarm threshold in this version.
 
 On phones the four daily operational areas use a persistent bottom dock; account, theme and administrative pages are grouped under **Mehr**. Tables become labelled touch-friendly records, dialogs use the available screen width and all actions remain usable from 320 px without horizontal page overflow. Desktop retains the compact side navigation.
 
@@ -77,7 +77,7 @@ Every user selects **Hell**, **Dunkel** or **System**. The preference follows th
 
 Battery remaining days are explicitly an estimate. A forecast requires at least 20 values over seven days and a credible negative trend, considers at most 30 days from the current battery cycle, and is capped at 730 days. **Batterie gewechselt** starts a new cycle. Insufficient or unstable data is displayed as such.
 
-Temperature thresholds are inclusive. State events open once on threshold violation and receive updated observations instead of duplicates; recovery sets `closed_at`. Offline is evaluated as `max(2 × upload interval, upload interval + 15 minutes)`. Battery uses configured thresholds and weak signal starts below −75 dBm.
+Temperature thresholds are inclusive. State events open once on threshold violation and receive updated observations instead of duplicates; recovery sets `closed_at`. A late sample outside measurement-time order is retained and acknowledged, with a data-quality warning, without reversing the live alarm state. Offline is evaluated as `max(2 × upload interval, upload interval + 15 minutes)`. Battery uses configured thresholds and weak signal starts below −75 dBm.
 
 The deviation workflow is `open → acknowledged → action_recorded → verified/resolved`. Cause, action, affected-product disposition, time and responsible user are required. Corrections append a new revision. Verification requires the current password; measurements, previous revisions and completed evidence are never overwritten.
 
