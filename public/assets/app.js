@@ -1,6 +1,6 @@
 import { api, setCsrfToken } from './api.js?v=20260810-1';
 import { overviewView } from './views/overview.js?v=20260924-6';
-import { analysisView } from './views/analysis.js?v=20260925-2';
+import { analysisView } from './views/analysis.js?v=20260925-3';
 import { eventsView } from './views/events.js?v=20260924-2';
 import { exportsView } from './views/exports.js?v=20260810-1';
 import { usersView } from './views/users.js?v=20260810-1';

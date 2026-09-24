@@ -121,6 +121,10 @@ function resetChart(key) {
   Object.assign(charts[key], { rows: [], selectedIndex: -1, pinned: false, geometry: null, ariaText: '' });
 }
 
+function quantity(count, singular, plural) {
+  return count + ' ' + (Number(count) === 1 ? singular : plural);
+}
+
 function render() {
   renderMetrics();
   renderMeasurementFocus();
@@ -140,8 +144,10 @@ function renderMetrics() {
   const pointName = state.point
     ? document.querySelector('#analysis-point').selectedOptions[0]?.textContent || 'Messstelle'
     : 'alle Messstellen';
-  document.querySelector('#analysis-scope').textContent = deviceName + ' · ' + pointName +
-    ' · ' + data.fleet.devices + ' aktive Geräte' +
+  document.querySelector('#analysis-scope').textContent =
+    (state.device ? 'Gerät: ' + deviceName : deviceName) + ' · ' +
+    (state.point ? 'Messstelle: ' + pointName : pointName) + ' · ' +
+    quantity(data.fleet.devices, 'aktives Gerät', 'aktive Geräte') +
     (state.point
       ? ' · Messstellenfilter: Messwerte und Ereignisse. Signal, Übertragungen und Verfügbarkeit gelten für das gesamte Gerät.'
       : ' · Verfügbarkeit und Übertragungen beziehen sich auf Geräte.') +
@@ -381,12 +387,14 @@ function updateReadout(key) {
       ', Luftfeuchtigkeit ' + formatNumber(row.humidity_rh, ' % rF') : 'Noch kein Messwert';
   } else if (key === 'events') {
     set('day', row ? dayLabel(row.day) : 'Noch kein Tag');
-    set('count', row ? row.total + ' neu · ' + row.warning + ' Warnungen · ' + row.critical + ' kritisch' : '–');
+    set('count', row ? row.total + ' neu · ' + quantity(row.warning, 'Warnung', 'Warnungen') +
+      ' · ' + quantity(row.critical, 'kritisches Ereignis', 'kritische Ereignisse') : '–');
     const types = row ? state.data.events_by_day.filter((event) => event.day === row.day) : [];
     document.querySelector('#analysis-events-breakdown').textContent = types.length
       ? types.map((event) => event.event_count + ' × ' + eventLabel(event.event_type)).join(' · ')
       : 'An diesem Tag wurden keine Ereignisse neu eröffnet.';
-    control.ariaText = row ? dayLabel(row.day) + ', ' + row.total + ' neue Ereignisse' : 'Noch kein Tag';
+    control.ariaText = row ? dayLabel(row.day) + ', ' +
+      quantity(row.total, 'neues Ereignis', 'neue Ereignisse') : 'Noch kein Tag';
   } else if (key === 'battery') {
     set('time', row ? formatDate(row.at) : 'Noch kein Batteriewert');
     set('value', 'Spannung ' + (row?.mv == null ? '–' : formatNumber(row.mv, ' mV')));
