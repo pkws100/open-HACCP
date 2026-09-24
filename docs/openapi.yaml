@@ -378,7 +378,7 @@ paths:
           schema: { type: integer, enum: [1] }
       responses:
         "200":
-          description: Fleet, selected measurement point, current protected photo URLs, chart series, 25 recent values and diagnostics; recent_only=1 returns only selection, recent_measurements and recent_pagination.
+          description: Fleet, selected measurement point, current protected photo URLs, chart series, 25 recent values and diagnostics; recent_only=1 returns only selection, recent_measurements and recent_pagination. Temperature fields use the immutable corrected value. Each measurement also includes raw_temperature_c, temperature_offset_c, and calibration_config_version; legacy records have offset zero and null calibration version.
           content:
             application/json:
               schema:
@@ -388,7 +388,14 @@ paths:
                   recent_measurements:
                     type: array
                     maxItems: 25
-                    items: { type: object, additionalProperties: true }
+                    items:
+                      type: object
+                      additionalProperties: true
+                      properties:
+                        temperature_c: { type: number, description: Immutable corrected value used by alarms and charts. }
+                        raw_temperature_c: { type: number, description: Unmodified sensor value. }
+                        temperature_offset_c: { type: number, description: Offset effective when the sample was measured; zero for legacy rows. }
+                        calibration_config_version: { type: [integer, "null"], description: Settings version used at ingest; null for legacy rows. }
                   recent_pagination:
                     type: object
                     required: [page, per_page, total, total_pages, has_previous, has_next, snapshot_id]
@@ -647,10 +654,12 @@ paths:
   /api/v1/dashboard/devices/{device_uid}/settings:
     put:
       operationId: updateDashboardDeviceSettings
-      summary: Create a new version of device alarm, battery, and optional reporting schedule settings
+      summary: Create a new version of device alarm, battery, optional schedule and per-point calibration settings
       description: >-
         Administrator/operator endpoint protected by a database session and CSRF token; not part of Sensor Protocol V1. If schedule
-        is omitted, the existing device and measurement-point intervals are preserved.
+        is omitted, the existing device and measurement-point intervals are preserved. Calibration is server-side,
+        versioned with device settings and effective only for samples measured after the new version was saved.
+        Previously stored measurements are never recalculated; queued older samples use their measurement-time settings.
       security:
         - DashboardSession: []
           CsrfToken: []
@@ -682,6 +691,10 @@ paths:
                 measurement_points:
                   - measurement_point: fridge-1
                     interval_seconds: 300
+              calibration:
+                measurement_points:
+                  - measurement_point: fridge-1
+                    temperature_offset_c: -1.2
       responses:
         "200":
           description: A complete new configuration version was created
@@ -706,7 +719,7 @@ paths:
         "415":
           $ref: "#/components/responses/UnsupportedMediaType"
         "422":
-          description: Temperature, battery, or schedule settings are invalid
+          description: Temperature, battery, schedule or calibration settings are invalid
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ErrorResponse" }
@@ -1152,6 +1165,23 @@ components:
             full_threshold_mv: { type: integer, minimum: 0, maximum: 10000 }
         schedule:
           $ref: "#/components/schemas/DashboardSchedule"
+        calibration:
+          $ref: "#/components/schemas/DashboardCalibration"
+    DashboardCalibration:
+      type: object
+      additionalProperties: false
+      required: [measurement_points]
+      properties:
+        measurement_points:
+          type: array
+          description: Partial per-point updates are accepted; omitted points retain their current offset. Send zero to remove a correction.
+          items:
+            type: object
+            additionalProperties: false
+            required: [measurement_point, temperature_offset_c]
+            properties:
+              measurement_point: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,63}$" }
+              temperature_offset_c: { type: number, minimum: -10, maximum: 10, multipleOf: 0.001 }
     DashboardSchedule:
       type: object
       additionalProperties: false
@@ -1237,7 +1267,7 @@ components:
         config_version: { type: integer, minimum: 2 }
         settings:
           type: object
-          required: [config_version, alarm, battery, schedule]
+          required: [config_version, alarm, battery, schedule, calibration]
           additionalProperties: false
           properties:
             config_version: { type: integer, minimum: 2 }
@@ -1256,6 +1286,8 @@ components:
                 full_threshold_mv: { type: integer }
             schedule:
               $ref: "#/components/schemas/DashboardSchedule"
+            calibration:
+              $ref: "#/components/schemas/DashboardCalibration"
         alarm_status:
           type: string
           enum: [normal, below_min, above_max, disabled, no_data]

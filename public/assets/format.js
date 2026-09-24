@@ -24,7 +24,7 @@ export function roleLabel(role) {
 }
 
 export function eventLabel(type) {
-  return ({ temperature_below_min: 'Temperatur unter Minimum', temperature_above_max: 'Temperatur über Maximum', device_offline: 'Gerät offline', battery_low: 'Batterie niedrig', signal_weak: 'Funksignal schwach', measurement_rejected: 'Messung abgelehnt', sequence_gap: 'Sequenzlücke', firmware_diagnostic: 'Firmware-Diagnose' })[type] || type;
+  return ({ temperature_below_min: 'Temperatur unter Minimum', temperature_above_max: 'Temperatur über Maximum', device_offline: 'Gerät offline', battery_low: 'Batterie niedrig', signal_weak: 'Funksignal schwach', measurement_rejected: 'Messung abgelehnt', late_measurement_out_of_order: 'Verspätete Messung außerhalb der Reihenfolge', sequence_gap: 'Sequenzlücke', firmware_diagnostic: 'Firmware-Diagnose' })[type] || type;
 }
 
 export function statusLabel(status) {

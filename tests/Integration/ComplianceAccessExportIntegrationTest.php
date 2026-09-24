@@ -327,6 +327,7 @@ final class ComplianceAccessExportIntegrationTest extends IntegrationTestCase
             $measurements = (string) $zip->getFromName('measurements.csv');
             self::assertStringStartsWith("\xEF\xBB\xBF", $measurements);
             self::assertStringNotContainsString('battery_mv', $measurements);
+            self::assertStringContainsString('raw_temperature_c;temperature_offset_c;calibration_config_version', $measurements);
             $zip->close();
 
             $xlsx = $this->generateExport('extended', 'xlsx', $directory, ['battery', 'rssi', 'transmissions', 'configuration']);

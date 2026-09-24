@@ -96,6 +96,8 @@ final readonly class DashboardService
         $result['kpis'] = [
             'measurement_count' => (int) $summary['measurement_count'],
             'latest_temperature_c' => $this->float($latest['temperature_c'] ?? null),
+            'latest_raw_temperature_c' => $this->float($latest['raw_temperature_c'] ?? null),
+            'latest_temperature_offset_c' => $this->float($latest['temperature_offset_c'] ?? null),
             'latest_humidity_rh' => $this->float($latest['humidity_rh'] ?? null),
             'latest_battery_mv' => isset($latest['battery_mv']) ? (int) $latest['battery_mv'] : null,
             'latest_measured_at' => $this->timestamp($latest['measured_at'] ?? null),
@@ -292,6 +294,7 @@ final readonly class DashboardService
     private function settings(array $row, array $points): array
     {
         $pointIntervals = [];
+        $offsets = TemperatureCalibration::offsets($row['config_json'] ?? null);
         if (is_string($row['config_json']) && $row['config_json'] !== '') {
             $decoded = json_decode($row['config_json'], true);
             if (is_array($decoded) && is_array($decoded['measurement_point_intervals'] ?? null)) {
@@ -320,6 +323,15 @@ final readonly class DashboardService
                         'interval_seconds' => isset($pointIntervals[(string) $point['code']])
                             ? (int) $pointIntervals[(string) $point['code']]
                             : $defaultInterval,
+                    ],
+                    $points,
+                ),
+            ],
+            'calibration' => [
+                'measurement_points' => array_map(
+                    static fn (array $point): array => [
+                        'measurement_point' => (string) $point['code'],
+                        'temperature_offset_c' => $offsets[(string) $point['code']] ?? 0.0,
                     ],
                     $points,
                 ),
@@ -370,6 +382,9 @@ final readonly class DashboardService
             'sequence' => (int) $row['sequence'],
             'measured_at' => $this->timestamp($row['measured_at']),
             'temperature_c' => $this->float($row['temperature_c']),
+            'raw_temperature_c' => $this->float($row['raw_temperature_c']),
+            'temperature_offset_c' => $this->float($row['temperature_offset_c']),
+            'calibration_config_version' => $row['calibration_config_version'] === null ? null : (int) $row['calibration_config_version'],
             'humidity_rh' => $this->float($row['humidity_rh']),
             'battery_mv' => $row['battery_mv'] === null ? null : (int) $row['battery_mv'],
         ];

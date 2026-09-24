@@ -6,6 +6,7 @@ namespace Haccp\Service;
 
 use Haccp\Domain\Device;
 use Haccp\Repository\DeviceRepository;
+use Haccp\Repository\DeviceConfigRepository;
 use Haccp\Repository\MeasurementPointRepository;
 use Haccp\Repository\MeasurementRepository;
 use Haccp\Repository\TransmissionRepository;
@@ -25,6 +26,7 @@ final readonly class MeasurementService
         private MeasurementPointRepository $measurementPoints,
         private MeasurementRepository $measurements,
         private TransmissionRepository $transmissions,
+        private DeviceConfigRepository $configs,
         private DeviceConfigService $configService,
         private ComplianceEventService $eventService,
         private GapDetector $gapDetector,
@@ -91,6 +93,11 @@ final readonly class MeasurementService
             $acknowledgements = [];
             $rejections = [];
             $pointCache = [];
+            $latestByPoint = [];
+            $configTimeline = $this->configs->timeline($device->id);
+            if ($configTimeline === []) {
+                throw new \RuntimeException('Device configuration is missing.');
+            }
             $previousMax = [];
             $acknowledgedByPoint = [];
             $accepted = 0;
@@ -128,6 +135,7 @@ final readonly class MeasurementService
                 $pointId = (int) $point['id'];
                 if (!array_key_exists($pointCode, $previousMax)) {
                     $previousMax[$pointCode] = $this->measurements->maxSequence($device->id, $pointId);
+                    $latestByPoint[$pointCode] = $this->measurements->latestForPoint($device->id, $pointId);
                 }
 
                 $existing = $this->measurements->find($device->id, $pointId, $measurement['sequence']);
@@ -147,15 +155,36 @@ final readonly class MeasurementService
                     $status = 'duplicate';
                 } else {
                     try {
-                        $measurementId = $this->measurements->insert($device->id, $pointId, $measurement, $receivedAt);
-                        $this->eventService->measurement(
-                            $device->id,
-                            $pointId,
-                            $measurementId,
-                            (float) $measurement['temperature_c'],
-                            (string) $measurement['measured_at_db'],
-                            $configuration,
+                        $effective = $this->effectiveConfig($configTimeline, $measurement['measured_at_db']);
+                        $offsets = TemperatureCalibration::offsets($effective['config_json']);
+                        $offset = $offsets[$pointCode] ?? 0.0;
+                        $corrected = round((float) $measurement['temperature_c'] + $offset, 3);
+                        $measurement['applied_temperature_offset_c'] = number_format($offset, 3, '.', '');
+                        $measurement['corrected_temperature_c'] = number_format($corrected, 3, '.', '');
+                        $measurement['calibration_config_version'] = (int) $effective['config_version'];
+                        $latestPoint = $latestByPoint[$pointCode];
+                        $late = $latestPoint !== null && (
+                            $measurement['measured_at_db'] < $latestPoint['measured_at']
+                            || ($measurement['measured_at_db'] === $latestPoint['measured_at']
+                                && $measurement['sequence'] < $latestPoint['sequence'])
                         );
+                        $measurementId = $this->measurements->insert($device->id, $pointId, $measurement, $receivedAt);
+                        if ($late) {
+                            $this->eventService->lateMeasurement(
+                                $device->id, $pointId, $measurementId,
+                                $measurement['sequence'], (string) $measurement['measured_at_db'], $receivedAt,
+                                (float) $measurement['temperature_c'], $corrected, $configuration,
+                            );
+                        } else {
+                            $this->eventService->measurement(
+                                $device->id, $pointId, $measurementId, $corrected,
+                                (string) $measurement['measured_at_db'], $configuration,
+                            );
+                            $latestByPoint[$pointCode] = [
+                                'measured_at' => $measurement['measured_at_db'],
+                                'sequence' => $measurement['sequence'],
+                            ];
+                        }
                         $accepted++;
                         $status = 'accepted';
                     } catch (PDOException $exception) {
@@ -247,6 +276,19 @@ final readonly class MeasurementService
             'config_version' => $configuration['config_version'],
             'configuration' => $configuration,
         ];
+    }
+
+    /** @param list<array<string, mixed>> $timeline @return array<string, mixed> */
+    private function effectiveConfig(array $timeline, string $measuredAt): array
+    {
+        for ($index = count($timeline) - 1; $index >= 0; $index--) {
+            if ((string) $timeline[$index]['created_at'] <= $measuredAt) {
+                return $timeline[$index];
+            }
+        }
+
+        // Some devices have already queued a first sample before enrollment.
+        return $timeline[0];
     }
 
     /** @param array<string, mixed> $existing @param array<string, mixed> $measurement */

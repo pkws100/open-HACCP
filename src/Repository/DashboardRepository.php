@@ -121,7 +121,7 @@ final readonly class DashboardRepository
     public function latestMeasurementsForDevice(int $deviceId): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT mp.code, m.temperature_c, m.measured_at
+            'SELECT mp.code, COALESCE(m.corrected_temperature_c, m.temperature_c) AS temperature_c, m.measured_at
              FROM measurement_points mp
              LEFT JOIN measurements m ON m.id = (
                  SELECT latest.id FROM measurements latest
@@ -141,9 +141,9 @@ final readonly class DashboardRepository
     {
         $statement = $this->pdo->prepare(
             'SELECT COUNT(*) AS measurement_count,
-                    AVG(temperature_c) AS average_temperature_c,
-                    MIN(temperature_c) AS minimum_temperature_c,
-                    MAX(temperature_c) AS maximum_temperature_c,
+                    AVG(COALESCE(corrected_temperature_c, temperature_c)) AS average_temperature_c,
+                    MIN(COALESCE(corrected_temperature_c, temperature_c)) AS minimum_temperature_c,
+                    MAX(COALESCE(corrected_temperature_c, temperature_c)) AS maximum_temperature_c,
                     AVG(humidity_rh) AS average_humidity_rh
              FROM measurements
              WHERE measurement_point_id = :measurement_point_id AND measured_at >= :cutoff',
@@ -157,7 +157,10 @@ final readonly class DashboardRepository
     public function latestMeasurement(int $measurementPointId): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT sequence, measured_at, received_at, temperature_c, humidity_rh, battery_mv
+            'SELECT sequence, measured_at, received_at,
+                    COALESCE(corrected_temperature_c, temperature_c) AS temperature_c,
+                    temperature_c AS raw_temperature_c, COALESCE(applied_temperature_offset_c, 0) AS temperature_offset_c,
+                    calibration_config_version, humidity_rh, battery_mv
              FROM measurements WHERE measurement_point_id = :measurement_point_id
              ORDER BY measured_at DESC, sequence DESC LIMIT 1',
         );
@@ -171,7 +174,10 @@ final readonly class DashboardRepository
     public function series(int $measurementPointId, string $cutoff): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT sequence, measured_at, temperature_c, humidity_rh, battery_mv
+            'SELECT sequence, measured_at,
+                    COALESCE(corrected_temperature_c, temperature_c) AS temperature_c,
+                    temperature_c AS raw_temperature_c, COALESCE(applied_temperature_offset_c, 0) AS temperature_offset_c,
+                    calibration_config_version, humidity_rh, battery_mv
              FROM measurements
              WHERE measurement_point_id = :measurement_point_id AND measured_at >= :cutoff
              ORDER BY measured_at ASC, sequence ASC
@@ -204,7 +210,10 @@ final readonly class DashboardRepository
     public function recentMeasurements(int $measurementPointId, int $snapshotId, int $limit, int $offset): array
     {
         $statement = $this->pdo->prepare(
-            'SELECT sequence, measured_at, received_at, temperature_c, humidity_rh, battery_mv
+            'SELECT sequence, measured_at, received_at,
+                    COALESCE(corrected_temperature_c, temperature_c) AS temperature_c,
+                    temperature_c AS raw_temperature_c, COALESCE(applied_temperature_offset_c, 0) AS temperature_offset_c,
+                    calibration_config_version, humidity_rh, battery_mv
              FROM measurements
              WHERE measurement_point_id = :measurement_point_id AND id <= :snapshot_id
              ORDER BY measured_at DESC, sequence DESC

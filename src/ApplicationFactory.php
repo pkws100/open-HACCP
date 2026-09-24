@@ -143,6 +143,7 @@ final class ApplicationFactory
             $measurementPoints,
             $measurements,
             $transmissions,
+            $configs,
             $configService,
             $eventTransitions,
             new GapDetector(),

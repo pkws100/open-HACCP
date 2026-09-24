@@ -212,9 +212,11 @@ The normative machine-readable descriptions are [`protocol-v1.schema.json`](prot
 
 The resulting setup package is transferred through the physical sensor's WPA2-protected local SoftAP portal. That local portal, site WLAN credentials, captive-portal behavior, recovery button, and NVS storage are outside Sensor Protocol V1; see [`DEVICE_PROVISIONING.md`](DEVICE_PROVISIONING.md). Normal device traffic begins only after the firmware verifies HTTPS and authenticates the config request.
 
-`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses the database-backed dashboard session, a CSRF header and optimistic concurrency through `expected_config_version`. It is an administrator/operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature, battery, or schedule ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
+`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses the database-backed dashboard session, a CSRF header and optimistic concurrency through `expected_config_version`. It is an administrator/operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature, battery, schedule, or calibration ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
 
 The optional `schedule` object changes the device default measurement interval, upload interval, and a complete list of point-specific overrides. Omitting it preserves the preceding schedule. Every listed point must currently be active for that device; duplicate or unknown point codes are rejected. An empty `measurement_points` list removes all overrides so every point inherits the default.
+
+The optional `calibration.measurement_points` list sets a signed temperature offset for each named active point. The allowed range is −10 to +10 °C with at most three decimal places; sending zero removes a correction. Omitted points retain their preceding offset, and omitting `calibration` keeps all offsets unchanged. This offset is applied **only on the server** to samples measured after the settings version became effective. The sensor continues sending its raw temperature under Protocol V1. Each accepted measurement retains the raw value, the applied offset, the corrected value, and the settings version used, so retries remain idempotent and historical values are never silently recalculated. Offline samples uploaded later use the offset effective at their original UTC measurement time. Temperature alarms, dashboard charts, analysis and exports use the stored corrected value; CSV/XLSX also expose the raw value and applied offset.
 
 ```json
 {
@@ -226,6 +228,11 @@ The optional `schedule` object changes the device default measurement interval, 
     "upload_interval_seconds": 21600,
     "measurement_points": [
       {"measurement_point": "fridge-1", "interval_seconds": 120}
+    ]
+  },
+  "calibration": {
+    "measurement_points": [
+      {"measurement_point": "fridge-1", "temperature_offset_c": -1.2}
     ]
   }
 }

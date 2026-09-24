@@ -37,6 +37,54 @@ final readonly class ComplianceEventService
         }
     }
 
+    /** Preserve late samples without allowing them to reverse the current live alarm state. */
+    public function lateMeasurement(
+        int $deviceId,
+        int $pointId,
+        int $measurementId,
+        int $sequence,
+        string $measuredAt,
+        string $receivedAt,
+        float $rawTemperature,
+        float $correctedTemperature,
+        array $configuration,
+    ): void {
+        $this->lockDevice($deviceId);
+        $alarm = $configuration['alarm'] ?? [];
+        $minimum = $alarm['temperature_min_c'] ?? null;
+        $maximum = $alarm['temperature_max_c'] ?? null;
+        $state = 'disabled';
+        if (($alarm['enabled'] ?? false) === true && $minimum !== null && $maximum !== null) {
+            $state = $correctedTemperature < (float) $minimum ? 'below_min'
+                : ($correctedTemperature > (float) $maximum ? 'above_max' : 'normal');
+        }
+        $metadata = [
+            'sequence' => $sequence,
+            'measured_at' => $measuredAt,
+            'raw_temperature_c' => $rawTemperature,
+            'corrected_temperature_c' => $correctedTemperature,
+            'temperature_state' => $state,
+            'temperature_min_c' => $minimum,
+            'temperature_max_c' => $maximum,
+        ];
+        $this->events->create([
+            'device_id' => $deviceId,
+            'measurement_point_id' => $pointId,
+            'event_type' => 'late_measurement_out_of_order',
+            'severity' => 'warning',
+            'state' => 'open',
+            'opened_at' => $receivedAt,
+            'threshold_min' => $minimum,
+            'threshold_max' => $maximum,
+            'observed_value' => $correctedTemperature,
+            'source_measurement_id' => $measurementId,
+            'source_transmission_id' => null,
+            'metadata_json' => json_encode($metadata, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES),
+            'created_at' => $receivedAt,
+            'updated_at' => $receivedAt,
+        ]);
+    }
+
     public function diagnostics(int $deviceId, int $transmissionId, ?int $batteryMv, int $rssiDbm, array $configuration, string $at, array $errorCodes = []): void
     {
         $this->lockDevice($deviceId);

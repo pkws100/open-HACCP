@@ -57,6 +57,9 @@ final readonly class AnalysisService
             'measurements' => array_map(static fn (array $row): array => [
                 'measured_at' => $row['measured_at'],
                 'temperature_c' => (float) $row['temperature_c'],
+                'raw_temperature_c' => (float) $row['raw_temperature_c'],
+                'temperature_offset_c' => (float) $row['temperature_offset_c'],
+                'calibration_config_version' => $row['calibration_config_version'] === null ? null : (int) $row['calibration_config_version'],
                 'humidity_rh' => (float) $row['humidity_rh'],
                 'battery_mv' => $row['battery_mv'] === null ? null : (int) $row['battery_mv'],
                 'device_uid' => $row['device_uid'],

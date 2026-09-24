@@ -26,7 +26,10 @@ final readonly class AnalysisRepository
             $params['point_id'] = $pointId;
         }
         $statement = $this->pdo->prepare(
-            'SELECT m.measured_at, m.temperature_c, m.humidity_rh, m.battery_mv,
+            'SELECT m.measured_at, COALESCE(m.corrected_temperature_c, m.temperature_c) AS temperature_c,
+                    m.temperature_c AS raw_temperature_c,
+                    COALESCE(m.applied_temperature_offset_c, 0) AS temperature_offset_c,
+                    m.calibration_config_version, m.humidity_rh, m.battery_mv,
                     m.measurement_point_id, d.id AS device_id, d.device_uid, d.name AS device_name,
                     mp.name AS point_name, mp.code AS point_code
              FROM measurements m INNER JOIN devices d ON d.id = m.device_id

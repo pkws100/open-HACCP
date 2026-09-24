@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Haccp\Repository;
 
+use Haccp\Service\TemperatureCalibration;
 use PDO;
 
 final readonly class DeviceConfigRepository
@@ -74,19 +75,37 @@ final readonly class DeviceConfigRepository
         return $row === false ? null : $row;
     }
 
+    /** @return list<array<string, mixed>> Chronological immutable settings snapshots for offline batches. */
+    public function timeline(int $deviceId): array
+    {
+        $statement = $this->pdo->prepare(
+            'SELECT config_version, created_at, alarm_enabled, temperature_min_c, temperature_max_c, config_json
+             FROM device_configs WHERE device_id = :device_id ORDER BY config_version ASC',
+        );
+        $statement->execute(['device_id' => $deviceId]);
+
+        return $statement->fetchAll();
+    }
+
     /** @param array<string, mixed> $previous @param array<string, mixed> $settings */
     public function createNext(int $deviceId, array $previous, array $settings, string $now): int
     {
         $version = (int) $previous['config_version'] + 1;
-        $configJson = $previous['config_json'];
+        $extension = TemperatureCalibration::extension($previous['config_json']);
         if (array_key_exists('measurement_point_intervals', $settings)) {
-            $configJson = $settings['measurement_point_intervals'] === []
-                ? null
-                : json_encode(
-                    ['measurement_point_intervals' => $settings['measurement_point_intervals']],
-                    JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES,
-                );
+            if ($settings['measurement_point_intervals'] === []) {
+                unset($extension['measurement_point_intervals']);
+            } else {
+                $extension['measurement_point_intervals'] = $settings['measurement_point_intervals'];
+            }
         }
+        if (array_key_exists('temperature_offsets_c', $settings)) {
+            $extension['temperature_offsets_c'] = array_replace(
+                TemperatureCalibration::offsets($previous['config_json']),
+                $settings['temperature_offsets_c'],
+            );
+        }
+        $configJson = $extension === [] ? null : json_encode($extension, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
         $statement = $this->pdo->prepare(
             'INSERT INTO device_configs
              (device_id, config_version, measurement_interval_seconds, upload_interval_seconds, max_batch_size,

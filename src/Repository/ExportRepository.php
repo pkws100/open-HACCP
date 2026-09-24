@@ -126,7 +126,11 @@ final readonly class ExportRepository
     {
         [$filter, $params] = $this->measurementFilters($parameters, 'm');
         $statement = $this->pdo->prepare(
-            'SELECT m.id, m.sequence, m.measured_at, m.received_at, m.temperature_c, m.humidity_rh,
+            'SELECT m.id, m.sequence, m.measured_at, m.received_at,
+                    COALESCE(m.corrected_temperature_c, m.temperature_c) AS temperature_c,
+                    m.temperature_c AS raw_temperature_c,
+                    COALESCE(m.applied_temperature_offset_c, 0) AS temperature_offset_c,
+                    m.calibration_config_version, m.humidity_rh,
                     m.battery_mv, d.device_uid, d.name AS device_name, d.hardware_revision, d.firmware_version,
                     mp.id AS measurement_point_id, mp.code AS point_code, mp.name AS point_name,
                     mp.location, mp.sensor_type,

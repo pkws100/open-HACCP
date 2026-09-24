@@ -76,11 +76,13 @@ final readonly class DashboardSettingsService
         );
 
         $configuration = $this->deviceConfig->get($device);
+        $saved = $this->configs->latest($device->id);
+        $offsets = TemperatureCalibration::offsets($saved['config_json'] ?? null);
 
         return [
             'success' => true,
             'config_version' => $version,
-            'settings' => $this->normalizedSettings($version, $settings, $configuration),
+            'settings' => $this->normalizedSettings($version, $settings, $configuration, $offsets),
             'alarm_status' => $this->status->worstAlarm($states),
         ];
     }
@@ -89,7 +91,7 @@ final readonly class DashboardSettingsService
     private function validate(stdClass $payload, int $deviceId): array
     {
         $fields = [];
-        foreach (array_diff(array_keys(get_object_vars($payload)), ['expected_config_version', 'alarm', 'battery', 'schedule']) as $field) {
+        foreach (array_diff(array_keys(get_object_vars($payload)), ['expected_config_version', 'alarm', 'battery', 'schedule', 'calibration']) as $field) {
             $fields[$field] = 'Unknown settings field.';
         }
         $expectedVersion = $payload->expected_config_version ?? null;
@@ -97,6 +99,8 @@ final readonly class DashboardSettingsService
         $battery = $payload->battery ?? null;
         $hasSchedule = property_exists($payload, 'schedule');
         $schedule = $hasSchedule ? $payload->schedule : null;
+        $hasCalibration = property_exists($payload, 'calibration');
+        $calibration = $hasCalibration ? $payload->calibration : null;
 
         if (!is_int($expectedVersion) || $expectedVersion < 1) {
             $fields['expected_config_version'] = 'Must be a positive integer.';
@@ -123,6 +127,13 @@ final readonly class DashboardSettingsService
                 ['default_measurement_interval_seconds', 'upload_interval_seconds', 'measurement_points'],
             ) as $field) {
                 $fields['schedule.' . $field] = 'Unknown schedule field.';
+            }
+        }
+        if ($hasCalibration && !$calibration instanceof stdClass) {
+            $fields['calibration'] = 'Must be an object when supplied.';
+        } elseif ($calibration instanceof stdClass) {
+            foreach (array_diff(array_keys(get_object_vars($calibration)), ['measurement_points']) as $field) {
+                $fields['calibration.' . $field] = 'Unknown calibration field.';
             }
         }
 
@@ -160,6 +171,10 @@ final readonly class DashboardSettingsService
         $measurementInterval = null;
         $uploadInterval = null;
         $pointIntervals = null;
+        $knownCodes = array_fill_keys(
+            array_column($this->measurementPoints->activeForDevice($deviceId), 'code'),
+            true,
+        );
         if ($schedule instanceof stdClass) {
             $measurementInterval = $schedule->default_measurement_interval_seconds ?? null;
             $uploadInterval = $schedule->upload_interval_seconds ?? null;
@@ -173,10 +188,6 @@ final readonly class DashboardSettingsService
             if (!is_array($rawPointIntervals)) {
                 $fields['schedule.measurement_points'] = 'Must be an array.';
             } else {
-                $knownCodes = array_fill_keys(
-                    array_column($this->measurementPoints->activeForDevice($deviceId), 'code'),
-                    true,
-                );
                 $pointIntervals = [];
                 foreach ($rawPointIntervals as $index => $pointInterval) {
                     $prefix = 'schedule.measurement_points.' . $index;
@@ -205,6 +216,42 @@ final readonly class DashboardSettingsService
             }
         }
 
+        $offsets = null;
+        if ($calibration instanceof stdClass) {
+            $entries = $calibration->measurement_points ?? null;
+            if (!is_array($entries)) {
+                $fields['calibration.measurement_points'] = 'Must be an array.';
+            } else {
+                $offsets = [];
+                foreach ($entries as $index => $entry) {
+                    $prefix = 'calibration.measurement_points.' . $index;
+                    if (!$entry instanceof stdClass) {
+                        $fields[$prefix] = 'Must be an object.';
+                        continue;
+                    }
+                    foreach (array_diff(array_keys(get_object_vars($entry)), ['measurement_point', 'temperature_offset_c']) as $field) {
+                        $fields[$prefix . '.' . $field] = 'Unknown calibration field.';
+                    }
+                    $code = $entry->measurement_point ?? null;
+                    $offset = $entry->temperature_offset_c ?? null;
+                    if (!is_string($code) || !isset($knownCodes[$code])) {
+                        $fields[$prefix . '.measurement_point'] = 'Must name an active measurement point of this device.';
+                    } elseif (array_key_exists($code, $offsets)) {
+                        $fields[$prefix . '.measurement_point'] = 'Must not be repeated.';
+                    }
+                    if ((!is_int($offset) && !is_float($offset)) || !is_finite((float) $offset)
+                        || $offset < -10 || $offset > 10 || abs(round((float) $offset, 3) - (float) $offset) > 0.000000001) {
+                        $fields[$prefix . '.temperature_offset_c'] = 'Must be a number from -10 through 10 with at most three decimal places.';
+                    }
+                    if (is_string($code) && isset($knownCodes[$code]) && !array_key_exists($code, $offsets)
+                        && (is_int($offset) || is_float($offset)) && is_finite((float) $offset)
+                        && $offset >= -10 && $offset <= 10 && abs(round((float) $offset, 3) - (float) $offset) <= 0.000000001) {
+                        $offsets[$code] = round((float) $offset, 3);
+                    }
+                }
+            }
+        }
+
         if ($fields !== []) {
             throw new ApiException(422, 'INVALID_DEVICE_SETTINGS', 'Die Geräteeinstellungen sind ungültig.', ['fields' => $fields]);
         }
@@ -222,12 +269,15 @@ final readonly class DashboardSettingsService
             $validated['upload_interval_seconds'] = $uploadInterval;
             $validated['measurement_point_intervals'] = $pointIntervals;
         }
+        if ($offsets !== null) {
+            $validated['temperature_offsets_c'] = $offsets;
+        }
 
         return $validated;
     }
 
     /** @param array<string, mixed> $settings @param array<string, mixed> $configuration @return array<string, mixed> */
-    private function normalizedSettings(int $version, array $settings, array $configuration): array
+    private function normalizedSettings(int $version, array $settings, array $configuration, array $offsets): array
     {
         return [
             'config_version' => $version,
@@ -247,6 +297,15 @@ final readonly class DashboardSettingsService
                     static fn (array $point): array => [
                         'measurement_point' => $point['code'],
                         'interval_seconds' => $point['interval_seconds'],
+                    ],
+                    $configuration['measurement_points'],
+                ),
+            ],
+            'calibration' => [
+                'measurement_points' => array_map(
+                    static fn (array $point): array => [
+                        'measurement_point' => $point['code'],
+                        'temperature_offset_c' => $offsets[$point['code']] ?? 0.0,
                     ],
                     $configuration['measurement_points'],
                 ),
