@@ -3,20 +3,25 @@ import { lineChart, accessibleTable, chartColor, observeChartResize } from '../c
 import { openDialog, closeDialog, errorMessage } from '../dialog.js?v=20260810-1';
 import { alarmLabel, escapeHtml, formatDate, formatNumber, metric, powerLabel, signalIcon, statusPill } from '../format.js?v=20260923-2';
 
-const state = { device: '', point: '', hours: 24, data: null, initialized: false };
+const state = { device: '', point: '', hours: 24, recentPage: 1, data: null, initialized: false };
 const photoAccept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
 let context;
 let photoUploadInProgress = false;
 let loadSequence = 0;
+let recentRequestSequence = 0;
+let recentPagePending = false;
+let overviewPending = false;
 
 export const overviewView = {
   init(app) {
     context = app;
     if (state.initialized) return; state.initialized = true;
-    document.querySelector('#overview-refresh').addEventListener('click', load);
-    document.querySelector('#overview-device').addEventListener('change', (event) => { state.device = event.target.value; state.point = ''; load(); });
-    document.querySelector('#overview-point').addEventListener('change', (event) => { state.point = event.target.value; load(); });
-    document.querySelectorAll('[data-hours]').forEach((button) => button.addEventListener('click', () => { state.hours = Number(button.dataset.hours); document.querySelectorAll('[data-hours]').forEach((candidate) => candidate.classList.toggle('is-active', candidate === button)); load(); }));
+    document.querySelector('#overview-refresh').addEventListener('click', () => { state.recentPage = 1; load(); });
+    document.querySelector('#overview-device').addEventListener('change', (event) => { state.device = event.target.value; state.point = ''; state.recentPage = 1; load(); });
+    document.querySelector('#overview-point').addEventListener('change', (event) => { state.point = event.target.value; state.recentPage = 1; load(); });
+    document.querySelectorAll('[data-hours]').forEach((button) => button.addEventListener('click', () => { state.hours = Number(button.dataset.hours); state.recentPage = 1; document.querySelectorAll('[data-hours]').forEach((candidate) => candidate.classList.toggle('is-active', candidate === button)); load(); }));
+    document.querySelector('#recent-prev').addEventListener('click', () => changeRecentPage(-1));
+    document.querySelector('#recent-next').addEventListener('click', () => changeRecentPage(1));
     document.querySelector('#add-device').addEventListener('click', enrollmentDialog);
     window.addEventListener('resize', () => state.data && renderChart());
     window.addEventListener('haccp:themechange', () => state.data && renderChart());
@@ -27,13 +32,19 @@ export const overviewView = {
 
 async function load({ revealDevice = false } = {}) {
   const sequence = ++loadSequence;
-  const params = new URLSearchParams({ hours: String(state.hours) });
+  ++recentRequestSequence;
+  recentPagePending = false;
+  overviewPending = true;
+  renderRecentPagination();
+  const params = new URLSearchParams({ hours: String(state.hours), recent_page: String(state.recentPage) });
   if (state.device) params.set('device', state.device);
   if (state.point) params.set('point', state.point);
   let data;
   try { data = await api(`/api/v1/dashboard/overview?${params}`); }
-  catch (error) { if (sequence !== loadSequence) return; throw error; }
+  catch (error) { if (sequence !== loadSequence) return; overviewPending = false; renderRecentPagination(); throw error; }
   if (sequence !== loadSequence) return;
+  overviewPending = false;
+  state.recentPage = data.recent_pagination?.page || 1;
   state.data = data; state.device = data.selection?.device_uid || ''; state.point = data.selection?.measurement_point || '';
   context.devices = data.devices;
   render();
@@ -125,20 +136,25 @@ function revealSelectedDevice() {
 async function selectDevice(uid) {
   if (uid === state.data?.selection?.device_uid) {
     ++loadSequence;
+    ++recentRequestSequence;
+    recentPagePending = false;
+    overviewPending = false;
     state.device = uid; state.point = state.data.selection.measurement_point || '';
     markDeviceSelection(uid);
+    renderRecentPagination();
     revealSelectedDevice();
     return;
   }
   const previousDevice = state.data?.selection?.device_uid || '';
   const previousPoint = state.data?.selection?.measurement_point || '';
-  state.device = uid; state.point = '';
+  const previousPage = state.recentPage;
+  state.device = uid; state.point = ''; state.recentPage = 1;
   markDeviceSelection(uid, true);
   const sequence = loadSequence + 1;
   try { await load({ revealDevice: true }); }
   catch (error) {
     if (sequence !== loadSequence) return;
-    state.device = previousDevice; state.point = previousPoint;
+    state.device = previousDevice; state.point = previousPoint; state.recentPage = previousPage;
     markDeviceSelection(previousDevice);
     context.showMessage(error.message);
   }
@@ -148,6 +164,60 @@ function renderRecent() {
   const powerSource = state.data.selected_device?.battery?.power_source;
   const missingBatteryLabel = powerSource === 'mains' ? 'Netzbetrieb' : powerSource === 'battery_unmonitored' ? 'Batteriebetrieb · Wert nicht verfügbar' : '–';
   document.querySelector('#recent-table').innerHTML = (state.data.recent_measurements || []).map((row) => `<tr><td data-label="Zeitpunkt">${formatDate(row.measured_at)}</td><td data-label="Sequenz">${row.sequence}</td><td data-label="Temperatur"><strong>${formatNumber(row.temperature_c, ' °C')}</strong></td><td data-label="Feuchte">${formatNumber(row.humidity_rh, ' %')}</td><td data-label="Batterie">${row.battery_mv == null ? missingBatteryLabel : formatNumber(row.battery_mv, ' mV')}</td></tr>`).join('') || '<tr class="empty-row"><td colspan="5">Noch keine Messwerte vorhanden.</td></tr>';
+  renderRecentPagination();
+}
+
+function renderRecentPagination() {
+  const nav = document.querySelector('#recent-pagination');
+  if (!nav) return;
+  const pagination = state.data?.recent_pagination;
+  nav.hidden = !pagination;
+  if (!pagination) return;
+  const page = Number(pagination.page);
+  const total = Number(pagination.total);
+  const perPage = Number(pagination.per_page);
+  const start = total ? (page - 1) * perPage + 1 : 0;
+  const end = Math.min(total, page * perPage);
+  document.querySelector('#recent-page-status').textContent = total
+    ? `Seite ${page} von ${pagination.total_pages} · ${start}–${end} von ${total} Messwerten${recentPagePending ? ' · wird geladen' : ''}`
+    : 'Keine Messwerte';
+  const pending = recentPagePending || overviewPending;
+  document.querySelector('#recent-prev').disabled = pending || !pagination.has_previous;
+  document.querySelector('#recent-next').disabled = pending || !pagination.has_next;
+  nav.setAttribute('aria-busy', String(pending));
+}
+
+async function changeRecentPage(direction) {
+  const pagination = state.data?.recent_pagination;
+  if (!pagination || recentPagePending || overviewPending) return;
+  const targetPage = Number(pagination.page) + direction;
+  if (targetPage < 1 || targetPage > Number(pagination.total_pages)) return;
+
+  const sequence = ++recentRequestSequence;
+  recentPagePending = true;
+  renderRecentPagination();
+  const params = new URLSearchParams({ recent_only: '1', recent_page: String(targetPage) });
+  if (state.device) params.set('device', state.device);
+  if (state.point) params.set('point', state.point);
+  if (pagination.snapshot_id) params.set('recent_snapshot_id', String(pagination.snapshot_id));
+  try {
+    const result = await api(`/api/v1/dashboard/overview?${params}`);
+    if (sequence !== recentRequestSequence) return;
+    if (!result.recent_pagination || !Array.isArray(result.recent_measurements)
+      || result.selection?.device_uid !== state.device || result.selection?.measurement_point !== state.point) {
+      throw new Error('Messwerte konnten nicht geladen werden.');
+    }
+    state.data.recent_measurements = result.recent_measurements;
+    state.data.recent_pagination = result.recent_pagination;
+    state.recentPage = result.recent_pagination.page;
+    recentPagePending = false;
+    renderRecent();
+  } catch (error) {
+    if (sequence !== recentRequestSequence) return;
+    recentPagePending = false;
+    renderRecentPagination();
+    context.showMessage(error.message);
+  }
 }
 
 async function uploadPhoto(file) {

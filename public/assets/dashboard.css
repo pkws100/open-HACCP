@@ -200,6 +200,9 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-strong); 
 .signal-icon.bars-1 i:nth-child(1), .signal-icon.bars-2 i:nth-child(-n+2), .signal-icon.bars-3 i:nth-child(-n+3), .signal-icon.bars-4 i { opacity: 1; }
 
 .data-section { margin-top: 30px; }
+.recent-pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.recent-pagination > span { color: var(--muted); font-size: 12px; text-align: center; }
+.recent-pagination button { min-width: 88px; }
 .table-wrap { width: 100%; overflow-x: auto; border-top: 1px solid var(--line); }
 table { width: 100%; border-collapse: collapse; }
 th { padding: 11px 12px; color: var(--faint); font-size: 10px; letter-spacing: .08em; text-align: left; text-transform: uppercase; white-space: nowrap; }
@@ -326,6 +329,9 @@ legend { color: var(--muted); font-size: 11px; padding: 0 6px; }
   .data-section tbody td:first-child { border-top: 0; }.data-section tbody td::before { content: attr(data-label); color: var(--faint); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-align: left; text-transform: uppercase; }
   .data-section tbody td > * { justify-self: end; }.data-section .device-cell { justify-self: stretch; justify-content: flex-end; min-width: 0; }.data-section .empty-row { padding: 0; }.data-section .empty-row td { display: block; padding: 22px 10px; text-align: center; }.data-section .empty-row td::before { content: none; }
   .table-action { min-height: 38px; padding: 8px; }
+  .recent-pagination { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr); gap: 8px; }
+  .recent-pagination button { min-width: 0; min-height: 44px; }
+  .recent-pagination > span { font-size: 11px; }
   .app-dialog { width: 100%; max-width: none; max-height: calc(100dvh - 18px); margin: 0; inset: auto 0 0; border-radius: 18px 18px 0 0; }
   .dialog-frame > header { padding: 17px 18px; }.dialog-frame h2 { font-size: 18px; }#dialog-content { max-height: calc(100dvh - 94px); padding: 18px; padding-bottom: calc(22px + env(safe-area-inset-bottom)); }.dialog-actions { position: sticky; bottom: 0; padding: 10px 0 0; background: var(--surface); }.dialog-actions button { min-height: 44px; flex: 1; }
   .photo-viewer-main { max-height: 52dvh; }.photo-viewer-meta { align-items: flex-start; flex-direction: column; }
