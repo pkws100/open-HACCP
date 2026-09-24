@@ -22,6 +22,11 @@ final class DeviceStatusServiceTest extends TestCase
         return [[null, 'unknown'], [5599, 'low'], [5600, 'medium'], [5999, 'medium'], [6000, 'full']];
     }
 
+    public function testMainsPoweredDeviceHasNoBatteryState(): void
+    {
+        self::assertSame('mains', (new DeviceStatusService())->battery(null, 5600, 6000, true));
+    }
+
     #[DataProvider('wifiCases')]
     public function testWifiBars(?int $rssi, ?int $expected): void
     {

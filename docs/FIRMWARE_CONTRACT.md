@@ -85,11 +85,13 @@ sequence          : positive int64, monotonic for this measurement point
 measured_at       : UTC timestamp
 temperature_c     : number, -100..150
 humidity_rh       : number, 0..100
-battery_mv        : integer, 0..10000
+battery_mv        : integer, 0..10000, or JSON null when no battery measurement exists
 upload_state      : pending | acknowledged
 ```
 
 Sequence state must survive reset and deep sleep. Never reuse a sequence for changed data. A batch may contain more than one measurement point, but sequences are independent per point. The current ESP32-S3/SHT45 build represents one provisioned physical point, selects that point's effective server interval, compiles a 64-record durable queue, and caps a server-provided larger batch size at 64; another client may support more physical points or a different lower compiled maximum than the protocol limit.
+
+When no battery-voltage sensor is wired, preserve `battery_mv: null` in each stored measurement and send the same explicit JSON null in batch diagnostics or heartbeat telemetry. Include exactly the applicable power-source capability in `device_info.capabilities`: `mains_power` for USB/mains operation or `battery_power_unmonitored` for externally battery-powered operation without voltage sensing. Omit `battery` for both. Never substitute 0 or a guessed voltage. The backend displays **Netzbetrieb · Batteriewert nicht verfügbar** or **Batteriebetrieb · Batteriewert nicht verfügbar** accordingly, excludes the nulls from battery forecasts, and creates no low-battery event from them. `battery_power_unmonitored` provides no state-of-charge or remaining-life estimate. A board with real battery measurement continues to send its measured integer and retains the existing battery display and low-battery evaluation.
 
 Durably store the current config and applied-version acknowledgement, effective interval for every supported physical point, last sample/upload/config-check and retry deadlines, retry counters, boot counter, monotonic sequences, pending queue and stable failure flags. Wake/reset must reconstruct the same pending records and deadlines. The checked-in power-managed reference persists these domains in NVS. A production firmware must still size storage for the selected offline guarantee and complete destructive power-loss/A-B or journal recovery tests; 64 records are not sufficient for every interval, upload cadence and outage duration.
 
@@ -154,7 +156,7 @@ Required diagnostic ranges:
 
 | Value | Range | Unit |
 |---|---:|---|
-| battery | 0..10000 | mV |
+| battery | 0..10000, or JSON `null` when unavailable | mV when measured |
 | RSSI | -120..0 | dBm |
 | Wi-Fi connect | 0..120000 | ms |
 | boot count | 0..4294967295 | count |
@@ -212,7 +214,7 @@ On boot, after key rotation, and periodically before upload, call the config end
 
 Apply a config only after complete validation, then atomically and durably store all fields plus its `config_version`. Recompute future deadlines without discarding an already-due sample or upload. Never accept a `max_batch_size` above the compiled protocol maximum of 500. `server_time` may be used to diagnose or correct clock drift using a platform-appropriate secure time strategy.
 
-Dashboard operators can change the inclusive temperature range, enable flag, device default measurement interval, upload interval, and measurement-point overrides. Each save creates a higher configuration version. Battery low/full thresholds belong only to the dashboard display and are never delivered to firmware in Sensor Protocol V1. Displayed alarm states currently create no persistent event and trigger no push or email action.
+Dashboard operators can change the inclusive temperature range, enable flag, device default measurement interval, upload interval, and measurement-point overrides. Each save creates a higher configuration version. Battery low/full thresholds belong only to the dashboard display and are never delivered to firmware in Sensor Protocol V1. An accepted measurement outside the active temperature range creates a persistent deviation event; an accepted in-range measurement closes an open temperature event. The dashboard evaluates the latest reading against newly saved limits immediately, while an existing event is reconciled on the next accepted measurement. There is no push or email action.
 
 Successful batch and heartbeat responses contain the same complete object as `configuration`. Prefer this piggyback when its version is newer, validate it independently, and persist it atomically after response identity/ACK processing. If it is absent or invalid, retain the last known-good config and use `GET /api/v1/device/config` on the next eligible connection. Never expect WLAN credentials, device keys, setup passwords, or other provisioning secrets in an operational response; the backend deliberately never returns them.
 
@@ -270,10 +272,10 @@ BOOT / RTC WAKE
     restore durable sequence, config, pending records, retry state
     determine which measurement-point deadlines are due
     for each due physical point:
-        power and read sensor plus battery
+        power and read sensor; read battery only if a sense circuit exists
         if values valid:
             sequence[point] += 1 and persist sequence
-            persist new pending temperature/humidity/battery measurement
+            persist new pending temperature/humidity measurement with measured battery or JSON null
         advance that point deadline from its server-provided effective interval
 
     determine whether upload/config refresh/retry is due or storage is near capacity

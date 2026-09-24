@@ -1,6 +1,6 @@
 # Open HACCP Monitor
 
-Open HACCP is a PHP 8.3/MariaDB backend, ESP32 sensor contract and mobile-first operational dashboard for temperature and humidity monitoring. The current prototype includes Sensor Protocol V1, three-device simulation, device onboarding, protected measurement-point photos, account themes, role-based users, persistent deviations, audit chaining, analyses and background-generated authority/extended exports.
+Open HACCP is a PHP 8.3/MariaDB backend, ESP32/ESP8266 sensor firmware and mobile-first operational dashboard for temperature and humidity monitoring. The current prototype includes Sensor Protocol V1, device onboarding, protected measurement-point photos, account themes, role-based users, persistent deviations, audit chaining, analyses and background-generated authority/extended exports.
 
 It provides operational evidence, but it is neither legal advice nor a HACCP or instrument certification. The export profile must always be checked against the business, product and competent authority.
 
@@ -65,6 +65,8 @@ Never reuse `DEVICE_API_KEY_PEPPER` as `AUDIT_LOG_KEY`. Neither value may be rot
 
 The navigation contains **Übersicht**, **Analyse**, **Abweichungen**, **Exporte**, **Benutzer** and **Betrieb**. Active devices show temperature state, battery status and RSSI bars. Analysis supports 7, 30 and 90 days, device/point filters, temperature/humidity, event distributions, availability/connection quality and battery history.
 
+Administrators and operators can edit device and measurement-point display names and the point location without changing the device UID, point code, key, or measurement history. Device settings save temperature limits, separate measurement/upload intervals and a signed temperature offset per measurement point as a new configuration version. The dashboard shows when firmware accepts its updated measurement schedule. The server applies the offset to future measurements and alarms while retaining each original sensor value and the applied correction. Follow the [temperature calibration procedure](docs/TEMPERATURE_CALIBRATION.md) before entering an offset; an infrared surface reading is not directly comparable to DHT22 air temperature. Unsaved form changes can be reset. The **Abweichungen** view keeps ongoing events visible beyond the selected history window and records acknowledgements and corrective actions. Humidity is measured and displayed but has no configurable alarm threshold in this version.
+
 On phones the four daily operational areas use a persistent bottom dock; account, theme and administrative pages are grouped under **Mehr**. Tables become labelled touch-friendly records, dialogs use the available screen width and all actions remain usable from 320 px without horizontal page overflow. Desktop retains the compact side navigation.
 
 The selected measurement point can have a versioned equipment photo, for example the monitored refrigerator rather than the sensor electronics. Administrators and operators can take a photo with the rear phone camera or choose one from the media library; auditors have read-only access. The list uses a generated thumbnail and tapping it opens the protected full-size image and revision history. An administrator can permanently remove an erroneous/sensitive revision after entering the current password; the database retains only an audit tombstone and promotes the latest surviving revision.
@@ -75,7 +77,7 @@ Every user selects **Hell**, **Dunkel** or **System**. The preference follows th
 
 Battery remaining days are explicitly an estimate. A forecast requires at least 20 values over seven days and a credible negative trend, considers at most 30 days from the current battery cycle, and is capped at 730 days. **Batterie gewechselt** starts a new cycle. Insufficient or unstable data is displayed as such.
 
-Temperature thresholds are inclusive. State events open once on threshold violation and receive updated observations instead of duplicates; recovery sets `closed_at`. Offline is evaluated as `max(2 × upload interval, upload interval + 15 minutes)`. Battery uses configured thresholds and weak signal starts below −75 dBm.
+Temperature thresholds are inclusive. State events open once on threshold violation and receive updated observations instead of duplicates; recovery sets `closed_at`. A late sample outside measurement-time order is retained and acknowledged, with a data-quality warning, without reversing the live alarm state. Offline is evaluated as `max(2 × upload interval, upload interval + 15 minutes)`. Battery uses configured thresholds and weak signal starts below −75 dBm.
 
 The deviation workflow is `open → acknowledged → action_recorded → verified/resolved`. Cause, action, affected-product disposition, time and responsible user are required. Corrections append a new revision. Verification requires the current password; measurements, previous revisions and completed evidence are never overwritten.
 
@@ -146,11 +148,13 @@ pio run -e esp32-s3-devkitc-1-sleep-fallback
 
 The forced-fallback profile is a bench aid; production uses the normal profile. Hardware current measurement, battery-divider calibration, queue sizing for the promised offline horizon, Secure Boot/Flash Encryption, encrypted NVS, OTA and destructive power-loss tests remain production gates.
 
+For the photographed USB-C ESP-WROOM-32 boards and ESP8266 D1 mini with a three-pin DHT22/AM2302 module, use the separate build/flash targets and the seven-step wiring and commissioning procedure in [`docs/DHT22_INBETRIEBNAHME.md`](docs/DHT22_INBETRIEBNAHME.md). These USB builds report mains power with no available battery voltage. The `esp32dev` build setting for the ESP-WROOM-32 target remains provisional until the attached board's USB identity and flash size are checked.
+
 See [`docs/SENSOR_PROTOCOL_V1.md`](docs/SENSOR_PROTOCOL_V1.md), [`docs/FIRMWARE_CONTRACT.md`](docs/FIRMWARE_CONTRACT.md) and [`docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md`](docs/FIRMWARE_IMPLEMENTATION_HANDOFF.md).
 
 ## Demo fleet
 
-The optional profile provisions a refrigerator, freezer and milk-drink cooler. It uploads 12 historical values per unit once, then varies a value every five minutes. Keys, exact pending batches and counters remain only in `haccp-demo-state` and never in logs or Compose output.
+The optional profile provisions a refrigerator, freezer and milk-drink cooler. It uploads 12 historical values per unit once, then varies a value every five minutes. Keys, exact pending batches and counters remain only in `haccp-demo-state` and never in logs or Compose output. **Do not enable this profile on the hardware test server:** its synthetic readings would contaminate the real-device test fleet.
 
 ```bash
 docker compose --profile demo up -d --build
@@ -183,10 +187,10 @@ The first upload reports accepted records; the immediate resend reports duplicat
 The default bind is loopback-only `127.0.0.1:18082`. The VPS override joins only `app` to the existing external `proxy` network with alias `haccp-monitor`; Nginx Proxy Manager routes `haccp.pow24.org` to `haccp-monitor:80`, forces HTTPS and uses a public certificate. Worker, database and demo expose no public port.
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build app worker db demo
+docker compose -p open-haccp -f docker-compose.yml -f docker-compose.vps.yml up -d --build app worker db
 ```
 
-Before an upgrade, take a MariaDB backup. The persistent `haccp-media-data` volume must be included in the normal encrypted VPS backup alongside MariaDB. Apply additive migrations, then start the app and worker; no additional public port or Nginx Proxy Manager route is needed because authenticated photo delivery uses the existing HTTPS host.
+Keep the `open-haccp` Compose project name when deploying from a new release directory so the existing database and media volumes remain attached. Do not start the optional `demo` service on the hardware test server. Before an upgrade, take a MariaDB backup. The persistent `haccp-media-data` volume must be included in the normal encrypted VPS backup alongside MariaDB. Apply additive migrations, then start the app and worker; no additional public port or Nginx Proxy Manager route is needed because authenticated photo delivery uses the existing HTTPS host.
 
 ## Tests
 

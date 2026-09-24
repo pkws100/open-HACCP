@@ -213,6 +213,48 @@ final class ComplianceAccessExportIntegrationTest extends IntegrationTestCase
         self::assertSame('ACTION_IMMUTABLE', $this->json($immutable)['error']['code']);
     }
 
+    public function testOngoingEventsRemainVisibleOutsideTheSelectedHistoryWindow(): void
+    {
+        $deviceId = (int) $this->pdo->query("SELECT id FROM devices WHERE device_uid = 'haccp-test-0001'")->fetchColumn();
+        $pointId = (int) $this->pdo->query("SELECT id FROM measurement_points WHERE code = 'fridge-1'")->fetchColumn();
+        $events = new EventRepository($this->pdo);
+        $clock = new Clock();
+        $create = function (string $type, string $openedAt, string $state = 'open') use ($events, $deviceId, $pointId): int {
+            return $events->create([
+                'device_id' => $deviceId,
+                'measurement_point_id' => $pointId,
+                'event_type' => $type,
+                'severity' => 'critical',
+                'state' => $state,
+                'opened_at' => $openedAt,
+                'threshold_min' => 2,
+                'threshold_max' => 7,
+                'observed_value' => 8,
+                'source_measurement_id' => null,
+                'source_transmission_id' => null,
+                'metadata_json' => null,
+                'created_at' => $openedAt,
+                'updated_at' => $openedAt,
+            ]);
+        };
+        $at = static fn (string $relative): string => $clock->database(new \DateTimeImmutable($relative, new \DateTimeZone('UTC')));
+        $oldOngoing = $create('temperature_above_max', $at('-400 days'), 'acknowledged');
+        $oldClosed = $create('temperature_below_min', $at('-40 days'));
+        $events->close($oldClosed, $at('-39 days'));
+        $recentClosed = $create('signal_weak', $at('-20 days'));
+        $events->close($recentClosed, $at('-19 days'));
+        $recentOngoing = $create('device_offline', $at('-2 days'));
+
+        $default = $this->json($this->dashboardRequest('/api/v1/dashboard/events'))['events'];
+        self::assertSame([$recentOngoing, $oldOngoing, $recentClosed], array_map('intval', array_column($default, 'id')));
+        self::assertNotContains($oldClosed, array_map('intval', array_column($default, 'id')));
+
+        $sevenDays = $this->json($this->dashboardRequest('/api/v1/dashboard/events?days=7'))['events'];
+        self::assertSame([$recentOngoing, $oldOngoing], array_map('intval', array_column($sevenDays, 'id')));
+        $acknowledged = $this->json($this->dashboardRequest('/api/v1/dashboard/events?days=7&state=acknowledged'))['events'];
+        self::assertSame([$oldOngoing], array_map('intval', array_column($acknowledged, 'id')));
+    }
+
     public function testAuditChainDetectsManipulation(): void
     {
         $audit = new AuditService($this->pdo, new Clock(), $this->config->auditLogKey);
@@ -285,6 +327,7 @@ final class ComplianceAccessExportIntegrationTest extends IntegrationTestCase
             $measurements = (string) $zip->getFromName('measurements.csv');
             self::assertStringStartsWith("\xEF\xBB\xBF", $measurements);
             self::assertStringNotContainsString('battery_mv', $measurements);
+            self::assertStringContainsString('raw_temperature_c;temperature_offset_c;calibration_config_version', $measurements);
             $zip->close();
 
             $xlsx = $this->generateExport('extended', 'xlsx', $directory, ['battery', 'rssi', 'transmissions', 'configuration']);

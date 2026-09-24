@@ -1,5 +1,5 @@
 import { api } from '../api.js?v=20260810-1';
-import { escapeHtml, formatDate, statusLabel, statusPill } from '../format.js?v=20260810-1';
+import { escapeHtml, formatDate, statusLabel, statusPill } from '../format.js?v=20260923-1';
 
 let context;
 let initialized = false;

@@ -139,8 +139,9 @@ final class ProtocolValidator
         if ($measurement->humidity_rh < 0 || $measurement->humidity_rh > 100) {
             return $this->invalid('INVALID_HUMIDITY', 'humidity_rh must be between 0 and 100');
         }
-        if (!is_int($measurement->battery_mv) || $measurement->battery_mv < 0 || $measurement->battery_mv > 10000) {
-            return $this->invalid('INVALID_BATTERY', 'battery_mv must be an integer between 0 and 10000');
+        if ($measurement->battery_mv !== null
+            && (!is_int($measurement->battery_mv) || $measurement->battery_mv < 0 || $measurement->battery_mv > 10000)) {
+            return $this->invalid('INVALID_BATTERY', 'battery_mv must be null or an integer between 0 and 10000');
         }
         if (!$this->validateDefinition($measurement, 'measurement')) {
             return $this->invalid('INVALID_MEASUREMENT', 'Measurement does not match Sensor Protocol V1');
@@ -162,7 +163,7 @@ final class ProtocolValidator
         ];
     }
 
-    /** @return array<string, int|string> */
+    /** @return array<string, mixed> */
     public function validateHeartbeat(stdClass $payload): array
     {
         if (!property_exists($payload, 'protocol_version') || $payload->protocol_version !== 1) {
@@ -341,16 +342,20 @@ final class ProtocolValidator
         return ['applied_version' => $value->applied_version, 'status' => $value->status];
     }
 
-    /** @return array{battery_mv: int, rssi_dbm: int, wifi_connect_ms: int, boot_count: int, errors: list<string>} */
+    /** @return array{battery_mv: ?int, rssi_dbm: int, wifi_connect_ms: int, boot_count: int, errors: list<string>} */
     private function validateDiagnostics(stdClass $diagnostics): array
     {
-        foreach (['battery_mv', 'rssi_dbm', 'wifi_connect_ms', 'boot_count'] as $field) {
+        if (!property_exists($diagnostics, 'battery_mv')) {
+            throw new ApiException(422, 'INVALID_DIAGNOSTICS', 'battery_mv is required');
+        }
+        foreach (['rssi_dbm', 'wifi_connect_ms', 'boot_count'] as $field) {
             if (!property_exists($diagnostics, $field) || !is_int($diagnostics->{$field})) {
                 throw new ApiException(422, 'INVALID_DIAGNOSTICS', sprintf('%s must be an integer', $field));
             }
         }
-        if ($diagnostics->battery_mv < 0 || $diagnostics->battery_mv > 10000) {
-            throw new ApiException(422, 'INVALID_BATTERY', 'battery_mv must be between 0 and 10000');
+        if ($diagnostics->battery_mv !== null
+            && (!is_int($diagnostics->battery_mv) || $diagnostics->battery_mv < 0 || $diagnostics->battery_mv > 10000)) {
+            throw new ApiException(422, 'INVALID_BATTERY', 'battery_mv must be null or between 0 and 10000');
         }
         if ($diagnostics->rssi_dbm < -120 || $diagnostics->rssi_dbm > 0) {
             throw new ApiException(422, 'INVALID_RSSI', 'rssi_dbm must be between -120 and 0');

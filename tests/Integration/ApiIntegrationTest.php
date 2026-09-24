@@ -9,6 +9,7 @@ use Haccp\Repository\DeviceConfigRepository;
 use Haccp\Repository\DeviceRepository;
 use Haccp\Repository\MeasurementPointRepository;
 use Haccp\Service\ApiKeyService;
+use Haccp\Service\AuditService;
 use Haccp\Support\Clock;
 use Slim\Psr7\Factory\ServerRequestFactory;
 use Slim\Psr7\Factory\StreamFactory;
@@ -304,6 +305,53 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame('fridge-1', $json['settings']['schedule']['measurement_points'][0]['measurement_point']);
     }
 
+    public function testDashboardSeriesKeepsNewest2500MeasurementsInChronologicalOrder(): void
+    {
+        $deviceId = (int) $this->pdo->query('SELECT id FROM devices LIMIT 1')->fetchColumn();
+        $pointId = (int) $this->pdo->query('SELECT id FROM measurement_points LIMIT 1')->fetchColumn();
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        $start = $now->modify('-2 hours');
+        $receivedAt = $now->format('Y-m-d H:i:s');
+        $insert = $this->pdo->prepare(
+            'INSERT INTO measurements
+                (device_id, measurement_point_id, sequence, measured_at, received_at,
+                 temperature_c, humidity_rh, battery_mv, created_at)
+             VALUES (:device_id, :point_id, :sequence, :measured_at, :received_at,
+                     4.000, 70.000, NULL, :created_at)',
+        );
+
+        $this->pdo->beginTransaction();
+        for ($sequence = 1; $sequence <= 2502; $sequence++) {
+            // Pairs share a timestamp to also verify sequence ordering at the boundary.
+            $insert->execute([
+                'device_id' => $deviceId,
+                'point_id' => $pointId,
+                'sequence' => $sequence,
+                'measured_at' => $start->modify('+' . intdiv($sequence - 1, 2) . ' seconds')->format('Y-m-d H:i:s'),
+                'received_at' => $receivedAt,
+                'created_at' => $receivedAt,
+            ]);
+        }
+        $insert->execute([
+            'device_id' => $deviceId,
+            'point_id' => $pointId,
+            'sequence' => 2503,
+            'measured_at' => $now->modify('-7 hours')->format('Y-m-d H:i:s'),
+            'received_at' => $receivedAt,
+            'created_at' => $receivedAt,
+        ]);
+        $this->pdo->commit();
+
+        $response = $this->dashboardRequest('/api/v1/dashboard/overview?hours=6');
+        $json = $this->json($response);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(2502, $json['kpis']['measurement_count']);
+        self::assertCount(2500, $json['series']);
+        self::assertSame(range(3, 2502), array_column($json['series'], 'sequence'));
+        self::assertSame($json['kpis']['latest_measured_at'], $json['series'][2499]['measured_at']);
+    }
+
     public function testAnalysisKpisFollowTheSelectedDeviceAndMeasurementPoint(): void
     {
         $this->request('POST', '/api/v1/device/measurements', $this->batch());
@@ -459,6 +507,101 @@ final class ApiIntegrationTest extends IntegrationTestCase
         ]));
         self::assertSame(2, $heartbeat['configuration']['config_version']);
         self::assertSame(120, $heartbeat['configuration']['measurement_points'][0]['interval_seconds']);
+    }
+
+    public function testDashboardIdentityCanRenameDeviceAndPointWithoutChangingProtocolIdentityOrHistory(): void
+    {
+        self::assertSame(3, $this->json($this->request('POST', '/api/v1/device/measurements', $this->batch()))['result']['accepted']);
+        $before = $this->pdo->query("SELECT id, api_key_hash, status FROM devices WHERE device_uid = 'haccp-test-0001'")->fetch();
+        $pointBefore = $this->pdo->query("SELECT id, code, sensor_type FROM measurement_points WHERE code = 'fridge-1'")->fetch();
+
+        $response = $this->dashboardRequest('/api/v1/dashboard/devices/' . $this->deviceUid . '/identity', true, 'PUT', [
+            'name' => ' Kühlraum Nord ',
+            'measurement_point' => ['code' => 'fridge-1', 'name' => ' Innenfühler ', 'location' => ' Lager Nord '],
+        ]);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('no-store', $response->getHeaderLine('Cache-Control'));
+        $body = $this->json($response);
+        self::assertSame(['device_uid' => $this->deviceUid, 'name' => 'Kühlraum Nord', 'status' => 'active'], $body['device']);
+        self::assertSame(['code' => 'fridge-1', 'name' => 'Innenfühler', 'location' => 'Lager Nord'], $body['measurement_point']);
+
+        $after = $this->pdo->query("SELECT id, device_uid, name, api_key_hash, status FROM devices WHERE device_uid = 'haccp-test-0001'")->fetch();
+        $pointAfter = $this->pdo->query("SELECT id, device_id, code, name, sensor_type, location FROM measurement_points WHERE code = 'fridge-1'")->fetch();
+        self::assertSame((int) $before['id'], (int) $after['id']);
+        self::assertSame($before['api_key_hash'], $after['api_key_hash']);
+        self::assertSame($before['status'], $after['status']);
+        self::assertSame((int) $pointBefore['id'], (int) $pointAfter['id']);
+        self::assertSame($pointBefore['code'], $pointAfter['code']);
+        self::assertSame($pointBefore['sensor_type'], $pointAfter['sensor_type']);
+        self::assertSame(3, (int) $this->pdo->query('SELECT COUNT(*) FROM measurements')->fetchColumn());
+        self::assertSame(1, (int) $this->pdo->query('SELECT MAX(config_version) FROM device_configs')->fetchColumn());
+        self::assertSame(1, (int) $this->pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'device.identity_updated'")->fetchColumn());
+        self::assertTrue((new AuditService($this->pdo, new Clock(), $this->config->auditLogKey))->verify()['valid']);
+
+        $overview = $this->json($this->dashboardRequest('/api/v1/dashboard/overview'));
+        self::assertSame('Kühlraum Nord', $overview['selected_device']['name']);
+        self::assertSame('Innenfühler', $overview['selected_measurement_point']['name']);
+        self::assertSame('Lager Nord', $overview['selected_measurement_point']['location']);
+        self::assertSame('fridge-1', $this->json($this->request('GET', '/api/v1/device/config'))['measurement_points'][0]['code']);
+
+        $deviceOnly = $this->json($this->dashboardRequest('/api/v1/dashboard/devices/' . $this->deviceUid . '/identity', true, 'PUT', [
+            'name' => 'Kühlraum Süd',
+        ]));
+        self::assertSame('Kühlraum Süd', $deviceOnly['device']['name']);
+        self::assertNull($deviceOnly['measurement_point']);
+
+        $pointOnly = $this->json($this->dashboardRequest('/api/v1/dashboard/devices/' . $this->deviceUid . '/identity', true, 'PUT', [
+            'measurement_point' => ['code' => 'fridge-1', 'location' => null],
+        ]));
+        self::assertSame('Kühlraum Süd', $pointOnly['device']['name']);
+        self::assertSame('Innenfühler', $pointOnly['measurement_point']['name']);
+        self::assertNull($pointOnly['measurement_point']['location']);
+    }
+
+    public function testDashboardIdentityRejectsInvalidDataAndRequiresWriteAccess(): void
+    {
+        $path = '/api/v1/dashboard/devices/' . $this->deviceUid . '/identity';
+        self::assertSame(401, $this->dashboardRequest($path, false, 'PUT', ['name' => 'No access'])->getStatusCode());
+
+        $invalid = [
+            ['name' => '  '],
+            ['measurement_point' => ['code' => 'fridge-1', 'name' => '']],
+            ['measurement_point' => ['code' => 'fridge-1', 'location' => str_repeat('x', 256)]],
+            ['name' => 'Changed', 'device_uid' => 'rewritten'],
+            ['measurement_point' => ['code' => 'fridge-1', 'sensor_type' => 'DHT22', 'name' => 'Changed']],
+            ['measurement_point' => ['code' => 'fridge-1']],
+        ];
+        foreach ($invalid as $payload) {
+            $response = $this->dashboardRequest($path, true, 'PUT', $payload);
+            self::assertSame(422, $response->getStatusCode());
+            self::assertSame('INVALID_DEVICE_IDENTITY', $this->json($response)['error']['code']);
+        }
+        $unknownPoint = $this->dashboardRequest($path, true, 'PUT', [
+            'measurement_point' => ['code' => 'elsewhere', 'name' => 'Changed'],
+        ]);
+        self::assertSame(404, $unknownPoint->getStatusCode());
+        self::assertSame('MEASUREMENT_POINT_NOT_FOUND', $this->json($unknownPoint)['error']['code']);
+        self::assertSame(404, $this->dashboardRequest('/api/v1/dashboard/devices/not-found/identity', true, 'PUT', [
+            'name' => 'Changed',
+        ])->getStatusCode());
+
+        $this->pdo->exec("UPDATE users SET role = 'auditor' WHERE username = 'haccp-test'");
+        $forbidden = $this->dashboardRequest($path, true, 'PUT', ['name' => 'Auditor edit']);
+        self::assertSame(403, $forbidden->getStatusCode());
+        self::assertSame('FORBIDDEN', $this->json($forbidden)['error']['code']);
+        self::assertSame('Integration test device', (string) $this->pdo->query("SELECT name FROM devices WHERE device_uid = 'haccp-test-0001'")->fetchColumn());
+        self::assertSame(0, (int) $this->pdo->query("SELECT COUNT(*) FROM audit_log WHERE action = 'device.identity_updated'")->fetchColumn());
+    }
+
+    public function testDashboardIdentityPreservesDisabledDeviceStatus(): void
+    {
+        self::assertTrue((new DeviceRepository($this->pdo))->disable($this->deviceUid, (new Clock())->database((new Clock())->now())));
+        $response = $this->dashboardRequest('/api/v1/dashboard/devices/' . $this->deviceUid . '/identity', true, 'PUT', [
+            'name' => 'Archiviertes Gerät',
+        ]);
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame('disabled', $this->json($response)['device']['status']);
+        self::assertSame('disabled', (string) $this->pdo->query("SELECT status FROM devices WHERE device_uid = 'haccp-test-0001'")->fetchColumn());
     }
 
     public function testDashboardSettingsRejectInvalidRangesAndVersionConflicts(): void

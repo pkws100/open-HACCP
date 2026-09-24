@@ -16,7 +16,7 @@ final readonly class MeasurementPointRepository
     public function findActiveByDeviceAndCode(int $deviceId, string $code): ?array
     {
         $statement = $this->pdo->prepare(
-            'SELECT id, device_id, code, name, sensor_type FROM measurement_points
+            'SELECT id, device_id, code, name, sensor_type, location FROM measurement_points
              WHERE device_id = :device_id AND code = :code AND active = 1',
         );
         $statement->execute(['device_id' => $deviceId, 'code' => $code]);
@@ -83,6 +83,21 @@ final readonly class MeasurementPointRepository
             'location' => $values['location'],
             'updated_at' => $values['updated_at'],
             'id' => $measurementPointId,
+        ]);
+    }
+
+    public function updateDisplay(int $measurementPointId, int $deviceId, string $name, ?string $location, string $now): void
+    {
+        $statement = $this->pdo->prepare(
+            'UPDATE measurement_points SET name = :name, location = :location, updated_at = :updated_at
+             WHERE id = :id AND device_id = :device_id',
+        );
+        $statement->execute([
+            'name' => $name,
+            'location' => $location,
+            'updated_at' => $now,
+            'id' => $measurementPointId,
+            'device_id' => $deviceId,
         ]);
     }
 

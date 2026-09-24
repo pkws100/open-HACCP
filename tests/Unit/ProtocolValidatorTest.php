@@ -52,6 +52,27 @@ final class ProtocolValidatorTest extends TestCase
         self::assertSame('INVALID_HUMIDITY', $result['code']);
     }
 
+    public function testAcceptsExplicitlyUnavailableBatteryAndRejectsMissingOrInvalidBattery(): void
+    {
+        $sent = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        $batch = $this->batch($sent);
+        $batch->diagnostics->battery_mv = null;
+        $batch->measurements[0]->battery_mv = null;
+        self::assertNull($this->validator->validateBatchEnvelope($batch)['diagnostics']['battery_mv']);
+        self::assertNull($this->validator->validateMeasurement($batch->measurements[0], $sent)['value']['battery_mv']);
+
+        $heartbeat = (object) [
+            'protocol_version' => 1, 'firmware_version' => '0.2.0', 'hardware_revision' => 'usb-dht22',
+            'battery_mv' => null, 'rssi_dbm' => -55, 'wifi_connect_ms' => 1200, 'boot_count' => 1,
+        ];
+        self::assertNull($this->validator->validateHeartbeat($heartbeat)['battery_mv']);
+
+        $batch->measurements[0]->battery_mv = 'missing';
+        self::assertSame('INVALID_BATTERY', $this->validator->validateMeasurement($batch->measurements[0], $sent)['code']);
+        unset($batch->measurements[0]->battery_mv);
+        self::assertSame('MISSING_MEASUREMENT_FIELD', $this->validator->validateMeasurement($batch->measurements[0], $sent)['code']);
+    }
+
     public function testAcceptsStableDiagnosticCodesAndRejectsSecretLikeFreeText(): void
     {
         $sent = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));

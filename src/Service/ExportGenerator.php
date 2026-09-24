@@ -143,6 +143,10 @@ final readonly class ExportGenerator
         $html .= '<td><strong>Berichts-ID</strong><br>' . $this->e($context['job']['public_id']) . '<br><strong>Datensatz-Fingerabdruck</strong><br><span class="muted">' . $this->e(substr($context['dataset_hash'], 0, 24)) . '…</span></td></tr></table>';
         $html .= $draft ? '<div class="notice"><strong>Entwurf:</strong> ' . $this->e(implode(' · ', $issues)) . '</div>' : '<div class="ok">Der konfigurationsbezogene Preflight war zum Erzeugungszeitpunkt vollständig.</div>';
         $html .= '<h2>Umfang und Vollständigkeit</h2><p>' . count($context['measurements']) . ' Messwerte und ' . count($context['deviations']) . ' dokumentierte Abweichungen. Der PDF-Bericht fasst die Messreihe zusammen; vollständige Einzelwerte stehen im XLSX- oder CSV-Export bereit.</p>';
+        $correctedCount = count(array_filter($context['measurements'], static fn (array $row): bool => abs((float) $row['temperature_offset_c']) > 0.0005));
+        if ($correctedCount > 0) {
+            $html .= '<p class="muted">' . $correctedCount . ' Temperaturwerte enthalten einen bei der Messung wirksamen Kalibrierzuschlag. Die Tageswerte nutzen die korrigierte Temperatur; Rohwert, Zuschlag und Konfigurationsversion stehen im XLSX- oder CSV-Einzelwertnachweis.</p>';
+        }
         if ($context['job']['mode'] === 'extended') {
             $fields = $context['parameters']['extended_fields'] ?? [];
             $html .= '<p class="muted">Ausgewählte technische Zusatzfelder: ' . $this->e($fields === [] ? 'keine' : implode(', ', $fields)) . '.</p>';
@@ -214,6 +218,7 @@ final readonly class ExportGenerator
         if ($this->selected($context, 'sequences')) $measurementHeaders[] = 'Sequenz';
         if ($this->selected($context, 'received_at')) $measurementHeaders[] = 'Empfangen UTC';
         if ($this->selected($context, 'firmware')) array_push($measurementHeaders, 'Firmware', 'Hardware');
+        array_push($measurementHeaders, 'Rohwert °C', 'Korrektur °C', 'Kalibrierkonfiguration Version');
         $this->newSheet($writer, 'Messwerte', $measurementHeaders, array_map(function (array $row) use ($context): array {
             $base = [
                 new \DateTimeImmutable((string) $row['measured_at'], new \DateTimeZone('UTC')),
@@ -224,13 +229,15 @@ final readonly class ExportGenerator
                 $this->effectiveMeasurementInterval($row),
             ];
             if ($this->selected($context, 'humidity')) $base[] = (float) $row['humidity_rh'];
-            if ($this->selected($context, 'battery')) $base[] = (int) $row['battery_mv'];
+            if ($this->selected($context, 'battery')) $base[] = $row['battery_mv'] === null ? null : (int) $row['battery_mv'];
             if ($this->selected($context, 'sequences')) $base[] = (int) $row['sequence'];
             if ($this->selected($context, 'received_at')) $base[] = new \DateTimeImmutable((string) $row['received_at'], new \DateTimeZone('UTC'));
             if ($this->selected($context, 'firmware')) {
                 $base[] = $this->safe($row['firmware_version']);
                 $base[] = $this->safe($row['hardware_revision']);
             }
+            array_push($base, (float) $row['raw_temperature_c'], (float) $row['temperature_offset_c'],
+                $row['calibration_config_version'] === null ? null : (int) $row['calibration_config_version']);
             return $base;
         }, $context['measurements']), $header);
 
@@ -243,7 +250,7 @@ final readonly class ExportGenerator
             $this->safe($row['responsible_name']), $this->safe($row['verified_by']), $row['verified_at'] === null ? null : new \DateTimeImmutable((string) $row['verified_at'], new \DateTimeZone('UTC')),
         ], $context['deviations']), $header);
 
-        $quality = array_values(array_filter($context['deviations'], static fn (array $row): bool => in_array($row['event_type'], ['sequence_gap', 'measurement_rejected', 'device_offline'], true)));
+        $quality = array_values(array_filter($context['deviations'], static fn (array $row): bool => in_array($row['event_type'], ['sequence_gap', 'measurement_rejected', 'late_measurement_out_of_order', 'device_offline'], true)));
         $this->newSheet($writer, 'Datenqualität', ['Zeitpunkt UTC', 'Gerät', 'Messstelle', 'Art', 'Status'], array_map(fn (array $row): array => [
             new \DateTimeImmutable((string) $row['opened_at'], new \DateTimeZone('UTC')), $this->safe($row['device_name']),
             $this->safe($row['point_name']), $this->safe($this->eventLabel($row['event_type'])), $this->safe($row['state']),
@@ -258,7 +265,7 @@ final readonly class ExportGenerator
             if ($this->selected($context, 'transmissions')) array_push($diagnosticHeaders, 'Boots', 'Diagnosecodes');
             $diagnosticRows = array_map(function (array $row) use ($context): array {
                 $values = [new \DateTimeImmutable((string) $row['received_at'], new \DateTimeZone('UTC')), $this->safe($row['device_name'])];
-                if ($this->selected($context, 'battery')) $values[] = (int) $row['battery_mv'];
+                if ($this->selected($context, 'battery')) $values[] = $row['battery_mv'] === null ? null : (int) $row['battery_mv'];
                 if ($this->selected($context, 'rssi')) $values[] = (int) $row['rssi_dbm'];
                 if ($this->selected($context, 'wifi_timing')) $values[] = (int) $row['wifi_connect_ms'];
                 if ($this->selected($context, 'firmware')) array_push($values, $this->safe($row['firmware_version']), $this->safe($row['hardware_revision']));
@@ -348,6 +355,7 @@ final readonly class ExportGenerator
             if ($this->selected($context, 'sequences')) $measurementHeaders[] = 'sequence';
             if ($this->selected($context, 'received_at')) $measurementHeaders[] = 'received_at_utc';
             if ($this->selected($context, 'firmware')) array_push($measurementHeaders, 'firmware_version', 'hardware_revision');
+            array_push($measurementHeaders, 'raw_temperature_c', 'temperature_offset_c', 'calibration_config_version');
             $measurementRows = [];
             foreach ($context['measurements'] as $row) {
                 $values = [
@@ -358,10 +366,12 @@ final readonly class ExportGenerator
                     $this->measurementStatus($row), $this->effectiveMeasurementInterval($row),
                 ];
                 if ($this->selected($context, 'humidity')) $values[] = (float) $row['humidity_rh'];
-                if ($this->selected($context, 'battery')) $values[] = (int) $row['battery_mv'];
+                if ($this->selected($context, 'battery')) $values[] = $row['battery_mv'] === null ? null : (int) $row['battery_mv'];
                 if ($this->selected($context, 'sequences')) $values[] = (int) $row['sequence'];
                 if ($this->selected($context, 'received_at')) $values[] = $row['received_at'];
                 if ($this->selected($context, 'firmware')) array_push($values, $row['firmware_version'], $row['hardware_revision']);
+                array_push($values, (float) $row['raw_temperature_c'], (float) $row['temperature_offset_c'],
+                    $row['calibration_config_version'] === null ? null : (int) $row['calibration_config_version']);
                 $measurementRows[] = $values;
             }
             $this->writeCsv($tempDir . '/measurements.csv', $measurementHeaders, $measurementRows);
@@ -441,6 +451,11 @@ final readonly class ExportGenerator
         }
         $result = [];
         foreach ($groups as $deviceUid => $rows) {
+            $rows = array_values(array_filter($rows, static fn (array $row): bool => $row['battery_mv'] !== null));
+            if ($rows === []) {
+                $result[] = ['device_uid' => $deviceUid, 'status' => 'unavailable', 'estimated_days_remaining' => null, 'confidence' => null, 'label' => 'keine Batteriemessung'];
+                continue;
+            }
             usort($rows, static fn (array $left, array $right): int => strcmp((string) $left['measured_at'], (string) $right['measured_at']));
             $latestTimestamp = strtotime((string) end($rows)['measured_at']);
             $rows = array_values(array_filter($rows, static fn (array $row): bool => strtotime((string) $row['measured_at']) >= $latestTimestamp - 30 * 86400));
@@ -527,6 +542,7 @@ final readonly class ExportGenerator
             'battery_low' => 'Batterie niedrig',
             'signal_weak' => 'Funksignal schwach',
             'measurement_rejected' => 'Messung abgelehnt',
+            'late_measurement_out_of_order' => 'Verspätete Messung außerhalb der Reihenfolge',
             'sequence_gap' => 'Sequenzlücke',
             'firmware_diagnostic' => 'Firmware-Diagnose',
             default => $type,

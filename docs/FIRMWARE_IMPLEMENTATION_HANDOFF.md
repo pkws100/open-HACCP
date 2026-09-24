@@ -1,6 +1,6 @@
 # ESP32-S3 firmware implementation handoff
 
-This document is now the implementation and hardware-release handoff for `firmware/esp32-s3`. Firmware `0.3.0-power-managed` implements the first bounded Wake–Measure–Persist–Transmit–Sleep cycle without weakening the provisioning, TLS, idempotency or exact-acknowledgement rules in [`FIRMWARE_CONTRACT.md`](FIRMWARE_CONTRACT.md). It compiles both the normal Deep-Sleep profile and a forced Light-Sleep fallback profile.
+This document is now the implementation and hardware-release handoff for `firmware/esp32-s3`. Firmware `0.3.2-power-managed` implements the bounded Wake–Measure–Persist–Transmit–Sleep cycle without weakening the provisioning, TLS, idempotency or exact-acknowledgement rules in [`FIRMWARE_CONTRACT.md`](FIRMWARE_CONTRACT.md). It compiles both the normal Deep-Sleep profile and a forced Light-Sleep fallback profile.
 
 Implemented in software:
 
@@ -8,6 +8,7 @@ Implemented in software:
 - timer Deep Sleep with Light-Sleep and bounded restart fallback;
 - two bounded WLAN attempts per wake plus persisted 1/5/15/30/60-minute jittered backoff;
 - optional board/chip/sensor/capacity, queue, wake/reset and accumulated failure telemetry;
+- one authenticated config refresh plus measurement upload or diagnostic heartbeat after a real power-on or reset, while timer wakes retain the configured cadence and pending backoff;
 - exact batch ACK deletion followed by independent piggyback-config validation;
 - explicit config GET fallback, durable `config_ack`, and a same-wake confirmation heartbeat for the version actually activated;
 - dashboard controls for the default/per-provisioned-point sampling interval and one, three, five or other supported transmissions per day.
@@ -46,6 +47,8 @@ RTC/cold wake
 ```
 
 Sampling and persistence happen before a normal network attempt. A cold boot that cannot reconstruct trustworthy UTC is the exception: synchronize time before assigning `measured_at`, or retain a separately marked local sample until a defensible UTC timestamp can be derived. Never fabricate a timestamp or replace measurement time with upload time.
+
+On an actual power-on or unexpected reset, perform one prompt authenticated contact even when the persisted normal upload deadline lies in the future. Fetch current configuration, upload a valid newly sampled or pending record, or send a diagnostic heartbeat when no valid measurement exists. Honor an already scheduled retry/backoff. A timer wake and the ESP32 light-sleep fallback restart remain normal scheduled cycles; they must not force a network connection every time. A first power-on without trustworthy UTC can connect to obtain time, but cannot queue a fabricated-timestamp reading while offline.
 
 ## Durable state model
 
@@ -150,3 +153,9 @@ Configuration is operational and non-secret. It can change cadence and alarms, b
 - Documentation clearly separates software-implemented behavior from hardware-measured and production-certified evidence.
 
 Firmware handoff ready: **YES**. The first power-managed software implementation, backend and machine-readable contract agree. Hardware release ready remains **NO** until the remaining bench, calibration, power-loss, storage-encryption and security gates above have recorded evidence.
+
+## Additional DHT22 USB targets
+
+The new ESP-WROOM-32/DHT22 and ESP8266 D1 mini/DHT22 implementations use separate PlatformIO environments and firmware binaries; see [`DHT22_INBETRIEBNAHME.md`](DHT22_INBETRIEBNAHME.md). They preserve Sensor Protocol V1 and report `battery_mv: null` plus `mains_power` because no battery divider is connected. The original ESP32-S3/SHT45 build remains a distinct profile with its original sensor identity and battery fallback behavior.
+
+Software builds and host/backend tests establish compile-time and logic evidence. On the first connected ESP32, USB-UART (CP2102, `10c4:ea60`), ESP32-D0WD-V3 revision 3.1, 4 MB flash, compatible `esp32dev` flashing, actual GPIO21 sensor routing, and six valid DHT22 readings at 2.5-second spacing were bench-verified on 2026-09-23. The protected portal completed enrollment, and the production firmware uploaded three real readings to the test server. The serial monitor reported three exact ACKs and zero records remaining; the dashboard displayed DHT22, the ESP-WROOM-32 board profile, firmware `0.4.0-esp32-dht22`, config version 1, temperature/humidity (including 24.0 °C and 36.8% RH), and mains power with battery value unavailable. An outdated server initially returned HTTP 422 for the absent battery value while the firmware preserved the pending records. After backup, migration, and deployment of repository commit `0b774c6` to `haccp.pow24.org`, the server accepted the batch and the device cleared only the acknowledged records. The ESP32 sleep build then entered deep sleep for 139 seconds, woke automatically, and queued a new valid DHT22 reading (23.9 °C / 37.4% RH); upload of this reading was not yet due. The exact DevKit manufacturer and the module's populated pull-up resistor remain unidentified. Long outage recovery and queue saturation still require tests on this board. The D1 mini hardware remains untested; explicitly test its D0/GPIO16-to-RST timer wake bridge before enabling the sleep build. The queue capacities of 64 (ESP32) and 32 (D1 mini) are storage limits, not a promised offline duration. See [`DHT22_INBETRIEBNAHME.md`](DHT22_INBETRIEBNAHME.md) for the observed readings and wiring.

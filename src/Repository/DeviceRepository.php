@@ -15,7 +15,17 @@ final readonly class DeviceRepository
 
     public function findByUid(string $uid): ?Device
     {
-        $statement = $this->pdo->prepare('SELECT id, device_uid, name, status, api_key_hash FROM devices WHERE device_uid = :uid');
+        return $this->fetchByUid($uid, false);
+    }
+
+    public function findByUidForUpdate(string $uid): ?Device
+    {
+        return $this->fetchByUid($uid, true);
+    }
+
+    private function fetchByUid(string $uid, bool $forUpdate): ?Device
+    {
+        $statement = $this->pdo->prepare('SELECT id, device_uid, name, status, api_key_hash FROM devices WHERE device_uid = :uid' . ($forUpdate ? ' FOR UPDATE' : ''));
         $statement->execute(['uid' => $uid]);
         $row = $statement->fetch();
 
@@ -75,6 +85,12 @@ final readonly class DeviceRepository
         $statement->execute(['name' => $name, 'status' => 'active', 'updated_at' => $now, 'id' => $deviceId]);
     }
 
+    public function updateDisplayName(int $deviceId, string $name, string $now): void
+    {
+        $statement = $this->pdo->prepare('UPDATE devices SET name = :name, updated_at = :updated_at WHERE id = :id');
+        $statement->execute(['name' => $name, 'updated_at' => $now, 'id' => $deviceId]);
+    }
+
     public function updateApiKey(int $deviceId, string $apiKeyHash, string $now): void
     {
         $statement = $this->pdo->prepare(
@@ -87,7 +103,7 @@ final readonly class DeviceRepository
         int $deviceId,
         string $firmwareVersion,
         string $hardwareRevision,
-        int $batteryMv,
+        ?int $batteryMv,
         int $rssiDbm,
         ?string $remoteIp,
         string $now,

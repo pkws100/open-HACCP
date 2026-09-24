@@ -12,6 +12,7 @@ use Haccp\Support\Clock;
 final readonly class DashboardService
 {
     private const ALLOWED_WINDOWS = [6, 24, 72, 168];
+    private const RECENT_PAGE_SIZE = 25;
 
     public function __construct(
         private DashboardRepository $dashboard,
@@ -22,7 +23,13 @@ final readonly class DashboardService
     }
 
     /** @return array<string, mixed> */
-    public function overview(?string $requestedDevice, ?string $requestedPoint, int $requestedHours): array
+    public function overview(
+        ?string $requestedDevice,
+        ?string $requestedPoint,
+        int $requestedHours,
+        int $requestedRecentPage = 1,
+        ?int $requestedRecentSnapshotId = null,
+    ): array
     {
         $hours = in_array($requestedHours, self::ALLOWED_WINDOWS, true) ? $requestedHours : 24;
         $now = $this->clock->now();
@@ -54,20 +61,14 @@ final readonly class DashboardService
                 'kpis' => null,
                 'series' => [],
                 'recent_measurements' => [],
+                'recent_pagination' => $this->emptyRecentPagination(),
                 'diagnostics' => null,
                 'settings' => null,
             ];
         }
 
         $points = $this->dashboard->measurementPoints((int) $device['id']);
-        $point = null;
-        foreach ($points as $candidate) {
-            if ($requestedPoint !== null && $candidate['code'] === $requestedPoint) {
-                $point = $candidate;
-                break;
-            }
-        }
-        $point ??= $points[0] ?? null;
+        $point = $this->selectedPoint($points, $requestedPoint);
 
         $result = $base + [
             'selection' => [
@@ -79,6 +80,7 @@ final readonly class DashboardService
             'kpis' => null,
             'series' => [],
             'recent_measurements' => [],
+            'recent_pagination' => $this->emptyRecentPagination(),
             'diagnostics' => $this->transmission($this->dashboard->latestTransmission((int) $device['id'])),
             'settings' => $this->settings($device, $points),
         ];
@@ -94,6 +96,8 @@ final readonly class DashboardService
         $result['kpis'] = [
             'measurement_count' => (int) $summary['measurement_count'],
             'latest_temperature_c' => $this->float($latest['temperature_c'] ?? null),
+            'latest_raw_temperature_c' => $this->float($latest['raw_temperature_c'] ?? null),
+            'latest_temperature_offset_c' => $this->float($latest['temperature_offset_c'] ?? null),
             'latest_humidity_rh' => $this->float($latest['humidity_rh'] ?? null),
             'latest_battery_mv' => isset($latest['battery_mv']) ? (int) $latest['battery_mv'] : null,
             'latest_measured_at' => $this->timestamp($latest['measured_at'] ?? null),
@@ -109,18 +113,114 @@ final readonly class DashboardService
             ),
         ];
         $result['series'] = array_map(fn (array $row): array => $this->measurement($row), $this->dashboard->series($pointId, $cutoff));
-        $result['recent_measurements'] = array_map(
-            fn (array $row): array => $this->measurement($row, true),
-            $this->dashboard->recentMeasurements($pointId),
-        );
+        $result = array_replace($result, $this->recentData($pointId, $requestedRecentPage, $requestedRecentSnapshotId));
 
         return $result;
+    }
+
+    /** @return array<string, mixed> */
+    public function recent(
+        ?string $requestedDevice,
+        ?string $requestedPoint,
+        int $requestedRecentPage,
+        ?int $requestedRecentSnapshotId,
+    ): array
+    {
+        $device = $requestedDevice === null ? null : $this->dashboard->deviceByUid($requestedDevice);
+        if ($device === null) {
+            $devices = $this->dashboard->devices();
+            $device = $devices[0] ?? null;
+        }
+        if ($device === null) {
+            return [
+                'selection' => null,
+                'recent_measurements' => [],
+                'recent_pagination' => $this->emptyRecentPagination(),
+            ];
+        }
+
+        $point = $this->selectedPoint($this->dashboard->measurementPoints((int) $device['id']), $requestedPoint);
+
+        return [
+            'selection' => [
+                'device_uid' => $device['device_uid'],
+                'measurement_point' => $point['code'] ?? null,
+            ],
+        ] + ($point === null
+            ? ['recent_measurements' => [], 'recent_pagination' => $this->emptyRecentPagination()]
+            : $this->recentData((int) $point['id'], $requestedRecentPage, $requestedRecentSnapshotId));
+    }
+
+    /** @param list<array<string, mixed>> $points @return array<string, mixed>|null */
+    private function selectedPoint(array $points, ?string $requestedPoint): ?array
+    {
+        foreach ($points as $point) {
+            if ($requestedPoint !== null && $point['code'] === $requestedPoint) {
+                return $point;
+            }
+        }
+
+        return $points[0] ?? null;
+    }
+
+    /** @return array{recent_measurements: list<array<string, mixed>>, recent_pagination: array<string, int|bool>} */
+    private function recentData(int $pointId, int $requestedPage, ?int $requestedSnapshotId): array
+    {
+        $latestId = $this->dashboard->latestMeasurementId();
+        $snapshotId = $requestedSnapshotId === null ? $latestId : min($requestedSnapshotId, $latestId);
+        $total = $snapshotId === 0 ? 0 : $this->dashboard->recentMeasurementCount($pointId, $snapshotId);
+        $totalPages = intdiv($total, self::RECENT_PAGE_SIZE) + ($total % self::RECENT_PAGE_SIZE === 0 ? 0 : 1);
+        $page = min(max(1, $requestedPage), max(1, $totalPages));
+        $rows = $total === 0 ? [] : $this->dashboard->recentMeasurements(
+            $pointId,
+            $snapshotId,
+            self::RECENT_PAGE_SIZE,
+            ($page - 1) * self::RECENT_PAGE_SIZE,
+        );
+
+        return [
+            'recent_measurements' => array_map(fn (array $row): array => $this->measurement($row, true), $rows),
+            'recent_pagination' => [
+                'page' => $page,
+                'per_page' => self::RECENT_PAGE_SIZE,
+                'total' => $total,
+                'total_pages' => $totalPages,
+                'has_previous' => $page > 1,
+                'has_next' => $page < $totalPages,
+                'snapshot_id' => $snapshotId,
+            ],
+        ];
+    }
+
+    /** @return array<string, int|bool> */
+    private function emptyRecentPagination(): array
+    {
+        return [
+            'page' => 1,
+            'per_page' => self::RECENT_PAGE_SIZE,
+            'total' => 0,
+            'total_pages' => 0,
+            'has_previous' => false,
+            'has_next' => false,
+            'snapshot_id' => 0,
+        ];
     }
 
     /** @param array<string, mixed> $row @return array<string, mixed> */
     private function device(array $row): array
     {
         $batteryMv = isset($row['last_battery_mv']) ? (int) $row['last_battery_mv'] : null;
+        $deviceInfo = $this->jsonObject($row['device_info_json'] ?? null);
+        $capabilities = is_array($deviceInfo['capabilities'] ?? null) ? $deviceInfo['capabilities'] : [];
+        if ($batteryMv !== null) {
+            $powerSource = 'battery';
+        } elseif (in_array('battery_power_unmonitored', $capabilities, true)) {
+            $powerSource = 'battery_unmonitored';
+        } elseif (in_array('mains_power', $capabilities, true)) {
+            $powerSource = 'mains';
+        } else {
+            $powerSource = 'unknown';
+        }
         $rssiDbm = isset($row['last_rssi_dbm']) ? (int) $row['last_rssi_dbm'] : null;
         $minimum = $this->float($row['temperature_min_c'] ?? null);
         $maximum = $this->float($row['temperature_max_c'] ?? null);
@@ -151,7 +251,7 @@ final readonly class DashboardService
             'status' => $row['status'],
             'hardware_revision' => $row['hardware_revision'],
             'firmware_version' => $row['firmware_version'],
-            'device_info' => $this->jsonObject($row['device_info_json'] ?? null),
+            'device_info' => $deviceInfo,
             'configuration_delivery' => [
                 'current_version' => isset($row['config_version']) ? (int) $row['config_version'] : null,
                 'applied_version' => isset($row['last_applied_config_version']) ? (int) $row['last_applied_config_version'] : null,
@@ -169,10 +269,12 @@ final readonly class DashboardService
             'photo' => $this->photo($row),
             'battery' => [
                 'millivolts' => $batteryMv,
+                'power_source' => $powerSource,
                 'state' => $this->status->battery(
                     $batteryMv,
                     (int) ($row['battery_low_mv'] ?? 5600),
                     (int) ($row['battery_full_mv'] ?? 6000),
+                    $powerSource === 'mains',
                 ),
             ],
             'wifi' => [
@@ -192,6 +294,7 @@ final readonly class DashboardService
     private function settings(array $row, array $points): array
     {
         $pointIntervals = [];
+        $offsets = TemperatureCalibration::offsets($row['config_json'] ?? null);
         if (is_string($row['config_json']) && $row['config_json'] !== '') {
             $decoded = json_decode($row['config_json'], true);
             if (is_array($decoded) && is_array($decoded['measurement_point_intervals'] ?? null)) {
@@ -220,6 +323,15 @@ final readonly class DashboardService
                         'interval_seconds' => isset($pointIntervals[(string) $point['code']])
                             ? (int) $pointIntervals[(string) $point['code']]
                             : $defaultInterval,
+                    ],
+                    $points,
+                ),
+            ],
+            'calibration' => [
+                'measurement_points' => array_map(
+                    static fn (array $point): array => [
+                        'measurement_point' => (string) $point['code'],
+                        'temperature_offset_c' => $offsets[(string) $point['code']] ?? 0.0,
                     ],
                     $points,
                 ),
@@ -270,8 +382,11 @@ final readonly class DashboardService
             'sequence' => (int) $row['sequence'],
             'measured_at' => $this->timestamp($row['measured_at']),
             'temperature_c' => $this->float($row['temperature_c']),
+            'raw_temperature_c' => $this->float($row['raw_temperature_c']),
+            'temperature_offset_c' => $this->float($row['temperature_offset_c']),
+            'calibration_config_version' => $row['calibration_config_version'] === null ? null : (int) $row['calibration_config_version'],
             'humidity_rh' => $this->float($row['humidity_rh']),
-            'battery_mv' => (int) $row['battery_mv'],
+            'battery_mv' => $row['battery_mv'] === null ? null : (int) $row['battery_mv'],
         ];
         if ($includeReceivedAt) {
             $result['received_at'] = $this->timestamp($row['received_at']);
@@ -293,7 +408,7 @@ final readonly class DashboardService
             'received_at' => $this->timestamp($row['received_at']),
             'firmware_version' => $row['firmware_version'],
             'hardware_revision' => $row['hardware_revision'],
-            'battery_mv' => (int) $row['battery_mv'],
+            'battery_mv' => $row['battery_mv'] === null ? null : (int) $row['battery_mv'],
             'rssi_dbm' => (int) $row['rssi_dbm'],
             'wifi_connect_ms' => (int) $row['wifi_connect_ms'],
             'boot_count' => (int) $row['boot_count'],

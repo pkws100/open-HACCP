@@ -6,10 +6,10 @@ namespace Haccp\Service;
 
 final class DeviceStatusService
 {
-    public function battery(?int $millivolts, int $lowThreshold, int $fullThreshold): string
+    public function battery(?int $millivolts, int $lowThreshold, int $fullThreshold, bool $mainsPower = false): string
     {
         if ($millivolts === null) {
-            return 'unknown';
+            return $mainsPower ? 'mains' : 'unknown';
         }
 
         if ($millivolts >= $fullThreshold) {

@@ -17,7 +17,7 @@ struct DeviceDiagnostics {
     String resetReason;
     String requestedSleepMode;
     OperationalState operational;
-    const char *errors[8]{};
+    const char *errors[10]{};
     size_t errorCount = 0;
 };
 class HaccpClient {

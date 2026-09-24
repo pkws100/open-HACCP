@@ -12,8 +12,14 @@ final readonly class AnalysisRepository
     {
     }
 
-    /** @return list<array<string, mixed>> */
-    public function measurements(string $from, string $to, ?string $deviceUid, ?int $pointId): array
+    /**
+     * Keep the first, last, and temperature/humidity extrema of each point in each
+     * time bucket. Every returned row is an actual immutable measurement. The
+     * budget bounds JSON size while preserving the entire requested time span.
+     *
+     * @return array{rows: list<array<string, mixed>>, total_count: int, sampled: bool}
+     */
+    public function sampledMeasurements(string $from, string $to, ?string $deviceUid, ?int $pointId): array
     {
         $where = ['m.measured_at >= :from', 'm.measured_at <= :to', "d.status = 'active'"];
         $params = ['from' => $from, 'to' => $to];
@@ -25,15 +31,80 @@ final readonly class AnalysisRepository
             $where[] = 'm.measurement_point_id = :point_id';
             $params['point_id'] = $pointId;
         }
-        $statement = $this->pdo->prepare(
-            'SELECT m.measured_at, m.temperature_c, m.humidity_rh, m.battery_mv,
-                    m.measurement_point_id, d.id AS device_id, d.device_uid, d.name AS device_name,
-                    mp.name AS point_name, mp.code AS point_code
+        $countStatement = $this->pdo->prepare(
+            'SELECT COUNT(*) AS total_count, COUNT(DISTINCT m.measurement_point_id) AS point_count
              FROM measurements m INNER JOIN devices d ON d.id = m.device_id
-             INNER JOIN measurement_points mp ON mp.id = m.measurement_point_id
-             WHERE ' . implode(' AND ', $where) . ' ORDER BY m.measured_at ASC LIMIT 30000',
+             WHERE ' . implode(' AND ', $where),
         );
+        $countStatement->execute($params);
+        $counts = $countStatement->fetch();
+        $total = (int) $counts['total_count'];
+        if ($total === 0) {
+            return ['rows' => [], 'total_count' => 0, 'sampled' => false];
+        }
+
+        $select = 'SELECT m.measured_at, COALESCE(m.corrected_temperature_c, m.temperature_c) AS temperature_c,
+                    m.temperature_c AS raw_temperature_c,
+                    COALESCE(m.applied_temperature_offset_c, 0) AS temperature_offset_c,
+                    m.calibration_config_version, m.humidity_rh, m.battery_mv,
+                    m.measurement_point_id, d.id AS device_id, d.device_uid, d.name AS device_name,
+                    mp.name AS point_name, mp.code AS point_code';
+        $join = ' FROM measurements m INNER JOIN devices d ON d.id = m.device_id
+                  INNER JOIN measurement_points mp ON mp.id = m.measurement_point_id';
+        if ($total <= 2500) {
+            $statement = $this->pdo->prepare($select . $join .
+                ' WHERE ' . implode(' AND ', $where) . ' ORDER BY m.measured_at ASC, m.id ASC');
+            $statement->execute($params);
+
+            return ['rows' => $statement->fetchAll(), 'total_count' => $total, 'sampled' => false];
+        }
+
+        $pointCount = max(1, (int) $counts['point_count']);
+        // Six representatives per point and bucket at most; a few extra rows
+        // can occur at the last partial bucket.
+        $bucketCount = max(1, intdiv(2500, 6 * $pointCount));
+        $spanSeconds = max(1, strtotime($to) - strtotime($from));
+        $bucketSeconds = max(1, (int) ceil($spanSeconds / $bucketCount));
+        $ranked = 'WITH candidates AS (
+            SELECT m.id, m.measurement_point_id, m.measured_at,
+                   COALESCE(m.corrected_temperature_c, m.temperature_c) AS temperature_c,
+                   m.humidity_rh,
+                   FLOOR(TIMESTAMPDIFF(SECOND, :bucket_from, m.measured_at) / :bucket_seconds) AS bucket_index
+            FROM measurements m INNER JOIN devices d ON d.id = m.device_id
+            WHERE ' . implode(' AND ', $where) . '
+        ), ranked AS (
+            SELECT id,
+                   ROW_NUMBER() OVER (PARTITION BY measurement_point_id, bucket_index ORDER BY measured_at ASC, id ASC) AS first_rank,
+                   ROW_NUMBER() OVER (PARTITION BY measurement_point_id, bucket_index ORDER BY measured_at DESC, id DESC) AS last_rank,
+                   ROW_NUMBER() OVER (PARTITION BY measurement_point_id, bucket_index ORDER BY temperature_c ASC, measured_at ASC, id ASC) AS cold_rank,
+                   ROW_NUMBER() OVER (PARTITION BY measurement_point_id, bucket_index ORDER BY temperature_c DESC, measured_at ASC, id ASC) AS warm_rank,
+                   ROW_NUMBER() OVER (PARTITION BY measurement_point_id, bucket_index ORDER BY humidity_rh ASC, measured_at ASC, id ASC) AS dry_rank,
+                   ROW_NUMBER() OVER (PARTITION BY measurement_point_id, bucket_index ORDER BY humidity_rh DESC, measured_at ASC, id ASC) AS humid_rank
+            FROM candidates
+        ) ';
+        $statement = $this->pdo->prepare($ranked . $select .
+            $join . ' INNER JOIN ranked r ON r.id = m.id
+             WHERE r.first_rank = 1 OR r.last_rank = 1 OR r.cold_rank = 1 OR r.warm_rank = 1
+                OR r.dry_rank = 1 OR r.humid_rank = 1
+             ORDER BY m.measured_at ASC, m.id ASC');
+        $params['bucket_from'] = $from;
+        $params['bucket_seconds'] = $bucketSeconds;
         $statement->execute($params);
+
+        return ['rows' => $statement->fetchAll(), 'total_count' => $total, 'sampled' => true];
+    }
+
+    /** @return list<array<string, mixed>> Full battery readings for a single device's forecast, never sent as a whole to the browser. */
+    public function batteryMeasurements(string $from, string $to, string $deviceUid): array
+    {
+        $statement = $this->pdo->prepare(
+            "SELECT m.measured_at, m.battery_mv, d.id AS device_id, d.device_uid
+             FROM measurements m INNER JOIN devices d ON d.id = m.device_id
+             WHERE m.measured_at >= :from AND m.measured_at <= :to
+               AND m.battery_mv IS NOT NULL AND d.status = 'active' AND d.device_uid = :device_uid
+             ORDER BY m.measured_at ASC, m.id ASC",
+        );
+        $statement->execute(['from' => $from, 'to' => $to, 'device_uid' => $deviceUid]);
 
         return $statement->fetchAll();
     }
@@ -60,13 +131,17 @@ final readonly class AnalysisRepository
     }
 
     /** @return list<array<string, mixed>> */
-    public function eventDaily(string $from, string $to, ?string $deviceUid): array
+    public function eventDaily(string $from, string $to, ?string $deviceUid, ?int $pointId): array
     {
         $where = ['e.opened_at >= :from', 'e.opened_at <= :to', "d.status = 'active'"];
         $params = ['from' => $from, 'to' => $to];
         if ($deviceUid !== null) {
             $where[] = 'd.device_uid = :device_uid';
             $params['device_uid'] = $deviceUid;
+        }
+        if ($pointId !== null) {
+            $where[] = 'e.measurement_point_id = :point_id';
+            $params['point_id'] = $pointId;
         }
         $statement = $this->pdo->prepare(
             'SELECT DATE(e.opened_at) AS day, e.event_type, e.severity, COUNT(*) AS event_count

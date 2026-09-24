@@ -24,13 +24,24 @@ The device key contains 32 random bytes encoded as 64 hexadecimal characters. Th
 |---|---|---|
 | `temperature_c` | number | degrees Celsius, -100 through 150 |
 | `humidity_rh` | number | percent relative humidity, 0 through 100 |
-| `battery_mv` | integer | millivolts, 0 through 10000 |
+| `battery_mv` | integer or `null` | millivolts, 0 through 10000 when measured; `null` when unavailable |
 | `rssi_dbm` | integer | dBm, -120 through 0 |
 | `wifi_connect_ms` | integer | milliseconds, 0 through 120000 |
 | `boot_count` | integer | 0 through 4294967295 |
 | `sequence` | integer | 1 through signed 64-bit maximum |
 
 These limits detect technical errors and are not HACCP alarm thresholds. Batch metadata, diagnostics, and heartbeat objects may contain new metadata fields. Measurement objects are strict: unknown fields reject that individual measurement.
+
+`battery_mv` remains a required key in measurements, batch diagnostics, and heartbeats. Send JSON `null` in all three locations when no battery-voltage measurement exists, never an estimated voltage or `0` as a missing-value marker. The optional `device_info.capabilities` identifies the power source when known:
+
+| Value and capability | Dashboard interpretation | Low-battery event |
+|---|---|---|
+| Measured integer (`battery` or legacy client) | Real measured battery voltage; existing battery display and forecasts | Evaluated against configured threshold |
+| `null` with `mains_power` | **Netzbetrieb · Batteriewert nicht verfügbar** | None |
+| `null` with `battery_power_unmonitored` | **Batteriebetrieb · Batteriewert nicht verfügbar**; no state-of-charge or remaining-life estimate | None |
+| `null` without either power-source capability | Battery value unavailable; power source unknown | None |
+
+`mains_power` and `battery_power_unmonitored` describe different power sources and must not be sent together. Firmware without a voltage-sense circuit omits `battery`. The backend stores SQL `NULL` for the unavailable value and excludes it from battery forecasts. Existing devices that send measured integers remain valid and keep their battery alarms and display.
 
 ## Optional firmware identity and operational state
 
@@ -170,7 +181,7 @@ Firmware validates and persists a newer configuration before using its cadence. 
 
 Only operational, non-secret configuration is returned. WLAN credentials, device keys, setup passwords, and other provisioning secrets are never included in config, heartbeat, or batch responses. `GET /config` remains the authoritative fallback and explicit configuration check.
 
-Events, corrective actions, analyses and exports are dashboard functions and do not alter Sensor Protocol V1. The server derives state events for temperature, low battery, weak RSSI and offline devices, plus discrete rejections, gaps and firmware codes. ACK/rejection correlation remains the only authority for deleting firmware queue records.
+Events, corrective actions, analyses and exports are dashboard functions and do not alter Sensor Protocol V1. The server derives state events for temperature, low battery **when a numeric battery voltage exists**, weak RSSI and offline devices, plus discrete rejections, gaps and firmware codes. ACK/rejection correlation remains the only authority for deleting firmware queue records.
 
 ## HTTP and error codes
 
@@ -201,9 +212,11 @@ The normative machine-readable descriptions are [`protocol-v1.schema.json`](prot
 
 The resulting setup package is transferred through the physical sensor's WPA2-protected local SoftAP portal. That local portal, site WLAN credentials, captive-portal behavior, recovery button, and NVS storage are outside Sensor Protocol V1; see [`DEVICE_PROVISIONING.md`](DEVICE_PROVISIONING.md). Normal device traffic begins only after the firmware verifies HTTPS and authenticates the config request.
 
-`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses the database-backed dashboard session, a CSRF header and optimistic concurrency through `expected_config_version`. It is an administrator/operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature, battery, or schedule ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
+`PUT /api/v1/dashboard/devices/{device_uid}/settings` uses the database-backed dashboard session, a CSRF header and optimistic concurrency through `expected_config_version`. It is an administrator/operator API, not a sensor endpoint. A successful update creates a complete new `device_configs` row; an outdated version receives HTTP 409 with `DEVICE_CONFIG_VERSION_CONFLICT`. Invalid temperature, battery, schedule, or calibration ranges receive HTTP 422 with `INVALID_DEVICE_SETTINGS`, and an unknown device receives `DASHBOARD_DEVICE_NOT_FOUND`.
 
 The optional `schedule` object changes the device default measurement interval, upload interval, and a complete list of point-specific overrides. Omitting it preserves the preceding schedule. Every listed point must currently be active for that device; duplicate or unknown point codes are rejected. An empty `measurement_points` list removes all overrides so every point inherits the default.
+
+The optional `calibration.measurement_points` list sets a signed temperature offset for each named active point. The allowed range is −10 to +10 °C with at most three decimal places; sending zero removes a correction. Omitted points retain their preceding offset, and omitting `calibration` keeps all offsets unchanged. This offset is applied **only on the server** to samples measured after the settings version became effective. The sensor continues sending its raw temperature under Protocol V1. Each accepted measurement retains the raw value, the applied offset, the corrected value, and the settings version used, so retries remain idempotent and historical values are never silently recalculated. Offline samples uploaded later use the offset effective at their original UTC measurement time. Temperature alarms, dashboard charts, analysis and exports use the stored corrected value; CSV/XLSX also expose the raw value and applied offset.
 
 ```json
 {
@@ -215,6 +228,11 @@ The optional `schedule` object changes the device default measurement interval, 
     "upload_interval_seconds": 21600,
     "measurement_points": [
       {"measurement_point": "fridge-1", "interval_seconds": 120}
+    ]
+  },
+  "calibration": {
+    "measurement_points": [
+      {"measurement_point": "fridge-1", "temperature_offset_c": -1.2}
     ]
   }
 }
