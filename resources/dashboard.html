@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#0b1212">
   <title>Open HACCP Monitor</title>
   <script src="/assets/theme-bootstrap.js?v=20260810-1"></script>
-  <link rel="stylesheet" href="/assets/dashboard.css?v=20260924-6">
+  <link rel="stylesheet" href="/assets/dashboard.css?v=20260924-7">
 </head>
 <body>
   <a class="skip-link" href="#workspace">Zum Inhalt springen</a>
@@ -74,7 +74,17 @@
         </div>
         <div class="metric-line" id="overview-metrics"></div>
         <div class="overview-grid">
-          <section class="chart-stage" aria-labelledby="temperature-chart-title"><div class="section-heading"><div><p class="eyebrow">Verlauf</p><h2 id="temperature-chart-title">Temperatur und Feuchte</h2></div><span id="chart-range">–</span></div><canvas id="overview-chart" height="340"></canvas><p class="chart-empty" id="overview-chart-empty" hidden>Für diesen Zeitraum liegen keine Messwerte vor.</p><div id="overview-chart-table" class="sr-only"></div></section>
+          <section class="chart-stage overview-chart-stage" aria-labelledby="temperature-chart-title">
+            <div class="section-heading"><div><p class="eyebrow">Verlauf</p><h2 id="temperature-chart-title">Temperatur und Luftfeuchtigkeit</h2></div><span id="chart-range">–</span></div>
+            <div class="chart-legend" role="group" aria-label="Messreihen anzeigen">
+              <button type="button" class="chart-series-toggle" data-chart-series="temperature" aria-pressed="true"><span class="chart-key chart-key-temperature" aria-hidden="true"></span>Temperatur <small>°C</small></button>
+              <button type="button" class="chart-series-toggle" data-chart-series="humidity" aria-pressed="true"><span class="chart-key chart-key-humidity" aria-hidden="true"></span>Luftfeuchtigkeit <small>% rF</small></button>
+            </div>
+            <div class="chart-readout" id="overview-chart-readout" aria-live="off"><strong id="chart-readout-time">–</strong><span id="chart-readout-temperature">Temperatur –</span><span id="chart-readout-humidity">Luftfeuchtigkeit –</span><button type="button" class="chart-latest-button" id="chart-latest" hidden>Letzter Wert</button></div>
+            <canvas id="overview-chart" height="480" role="slider" aria-label="Messzeitpunkt im Diagramm auswählen" aria-describedby="chart-interaction-hint" tabindex="0"></canvas>
+            <p class="chart-interaction-hint" id="chart-interaction-hint">Kurve berühren oder mit den Pfeiltasten einen Messzeitpunkt auswählen.</p>
+            <p class="chart-empty" id="overview-chart-empty" hidden>Für diesen Zeitraum liegen keine Messwerte vor.</p><div id="overview-chart-table" class="sr-only"></div>
+          </section>
           <aside class="device-focus" id="device-focus" aria-label="Ausgewähltes Gerät"></aside>
         </div>
         <section class="data-section"><div class="section-heading"><div><p class="eyebrow">Flotte</p><h2>Gerätestatus</h2></div></div><div class="table-wrap"><table><thead><tr><th>Gerät</th><th>Temperatur</th><th>Alarm</th><th>Versorgung</th><th>Signal</th><th>Letzte Verbindung</th></tr></thead><tbody id="device-table"></tbody></table></div></section>
@@ -122,6 +132,6 @@
   </div>
 
   <dialog id="app-dialog" class="app-dialog"><div class="dialog-frame"><header><div><p class="eyebrow" id="dialog-eyebrow">Bearbeiten</p><h2 id="dialog-title">Eintrag</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Dialog schließen">×</button></header><div id="dialog-content"></div></div></dialog>
-  <script type="module" src="/assets/app.js?v=20260924-5"></script>
+  <script type="module" src="/assets/app.js?v=20260924-6"></script>
 </body>
 </html>

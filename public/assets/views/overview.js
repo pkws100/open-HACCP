@@ -1,9 +1,10 @@
 import { api } from '../api.js?v=20260810-1';
-import { lineChart, accessibleTable, chartColor, observeChartResize } from '../charts.js?v=20260812-1';
+import { sensorTrendChart, accessibleTable, observeChartResize } from '../charts.js?v=20260924-1';
 import { openDialog, closeDialog, errorMessage } from '../dialog.js?v=20260810-1';
 import { alarmLabel, escapeHtml, formatDate, formatNumber, metric, powerLabel, signalIcon, statusPill } from '../format.js?v=20260923-2';
 
 const state = { device: '', point: '', hours: 24, recentPage: 1, data: null, initialized: false };
+const trend = { showTemperature: true, showHumidity: true, selectedIndex: -1, pinned: false, geometry: null };
 const photoAccept = 'image/jpeg,image/png,image/webp,image/heic,image/heif';
 const preciseTemperature = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 3 });
 const signedOffset = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 3, signDisplay: 'exceptZero' });
@@ -28,6 +29,39 @@ export const overviewView = {
     window.addEventListener('resize', () => state.data && renderChart());
     window.addEventListener('haccp:themechange', () => state.data && renderChart());
     observeChartResize([document.querySelector('#overview-chart')], () => state.data && renderChart());
+    document.querySelectorAll('[data-chart-series]').forEach((button) => button.addEventListener('click', () => {
+      const key = button.dataset.chartSeries === 'temperature' ? 'showTemperature' : 'showHumidity';
+      if (trend[key] && !trend[key === 'showTemperature' ? 'showHumidity' : 'showTemperature']) return;
+      trend[key] = !trend[key];
+      updateTrendButtons();
+      renderChart();
+    }));
+    const chart = document.querySelector('#overview-chart');
+    chart.addEventListener('pointermove', (event) => {
+      if ((trend.pinned && !event.buttons) || (event.pointerType === 'touch' && !event.buttons)) return;
+      const index = chartIndexAtPointer(event);
+      if (index !== null && index !== trend.selectedIndex) { trend.selectedIndex = index; renderChart(); }
+    });
+    chart.addEventListener('pointerdown', (event) => {
+      const index = chartIndexAtPointer(event);
+      if (index === null) return;
+      trend.selectedIndex = index; trend.pinned = true; renderChart();
+    });
+    chart.addEventListener('pointerleave', () => {
+      if (trend.pinned || !state.data?.series?.length) return;
+      trend.selectedIndex = state.data.series.length - 1; renderChart();
+    });
+    chart.addEventListener('keydown', (event) => {
+      const count = state.data?.series?.length || 0;
+      if (!count || !['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Escape'].includes(event.key)) return;
+      event.preventDefault();
+      if (event.key === 'Escape') { resetChartSelection(); return; }
+      trend.selectedIndex = event.key === 'Home' ? 0 : event.key === 'End' ? count - 1
+        : Math.max(0, Math.min(count - 1, trend.selectedIndex + (event.key === 'ArrowLeft' ? -1 : 1)));
+      trend.pinned = true; renderChart();
+    });
+    document.querySelector('#chart-latest').addEventListener('click', resetChartSelection);
+    updateTrendButtons();
   },
   load,
 };
@@ -48,6 +82,7 @@ async function load({ revealDevice = false } = {}) {
   overviewPending = false;
   state.recentPage = data.recent_pagination?.page || 1;
   state.data = data; state.device = data.selection?.device_uid || ''; state.point = data.selection?.measurement_point || '';
+  trend.selectedIndex = (data.series?.length || 0) - 1; trend.pinned = false;
   context.devices = data.devices;
   render();
   if (revealDevice) revealSelectedDevice();
@@ -66,8 +101,11 @@ function render() {
     metric('Luftfeuchte', formatNumber(kpi.latest_humidity_rh, ' %'), `Ø ${formatNumber(kpi.average_humidity_rh, ' %')}`),
     metric('Messwerte', formatNumber(kpi.measurement_count), `im ${data.window_hours}-Stunden-Fenster`),
   ].join('');
-  document.querySelector('#chart-range').textContent = `${data.window_hours} Stunden`;
-  renderChart(); renderFocus(); renderDevices(); renderRecent();
+  document.querySelector('#chart-range').textContent = data.window_hours >= 48
+    ? `${data.window_hours / 24} Tage` : `${data.window_hours} Stunden`;
+  renderFocus(); renderChart(); renderDevices(); renderRecent();
+  const values = data.series || [];
+  accessibleTable(document.querySelector('#overview-chart-table'), 'Temperatur- und Feuchteverlauf', ['Zeitpunkt', 'Temperatur °C', 'Feuchte %'], values.map((row) => [formatDate(row.measured_at), row.temperature_c, row.humidity_rh]));
 }
 
 function temperatureLabel(value) {
@@ -82,11 +120,71 @@ function calibrationNote(rawTemperature, offset) {
 function renderChart() {
   const values = state.data?.series || [];
   document.querySelector('#overview-chart-empty').hidden = values.length > 0;
-  lineChart(document.querySelector('#overview-chart'), [
-    { name: 'Temperatur', values: values.map((row) => ({ at: row.measured_at, value: row.temperature_c })), color: chartColor('accent') },
-    { name: 'Feuchte', values: values.map((row) => ({ at: row.measured_at, value: row.humidity_rh })), color: chartColor('humidity'), width: 1.4 },
-  ]);
-  accessibleTable(document.querySelector('#overview-chart-table'), 'Temperatur- und Feuchteverlauf', ['Zeitpunkt', 'Temperatur °C', 'Feuchte %'], values.map((row) => [formatDate(row.measured_at), row.temperature_c, row.humidity_rh]));
+  document.querySelector('#chart-interaction-hint').textContent = values.length >= 2500
+    ? 'Es werden höchstens die 2.500 neuesten Messwerte im gewählten Zeitraum gezeigt. Kurve berühren oder Pfeiltasten verwenden.'
+    : 'Kurve berühren oder mit den Pfeiltasten einen Messzeitpunkt auswählen.';
+  const chart = document.querySelector('#overview-chart');
+  const wide = window.matchMedia('(min-width: 1051px)').matches;
+  const focusHeight = document.querySelector('#device-focus')?.offsetHeight || 0;
+  chart.dataset.chartHeight = String(wide ? Math.max(500, Math.min(700, focusHeight - 175)) : chart.clientWidth < 470 ? 410 : 500);
+  trend.geometry = sensorTrendChart(chart, values, {
+    selectedIndex: trend.selectedIndex,
+    showTemperature: trend.showTemperature,
+    showHumidity: trend.showHumidity,
+    hours: state.hours,
+  });
+  updateChartReadout(values);
+}
+
+function updateTrendButtons() {
+  document.querySelectorAll('[data-chart-series]').forEach((button) => {
+    const temperature = button.dataset.chartSeries === 'temperature';
+    const visible = temperature ? trend.showTemperature : trend.showHumidity;
+    const otherVisible = temperature ? trend.showHumidity : trend.showTemperature;
+    button.setAttribute('aria-pressed', String(visible));
+    button.disabled = visible && !otherVisible;
+  });
+}
+
+function updateChartReadout(values) {
+  const chart = document.querySelector('#overview-chart');
+  const row = values[trend.selectedIndex];
+  const time = row ? formatDate(row.measured_at) : 'Noch kein Messwert';
+  const temperature = row ? temperatureLabel(row.temperature_c) : '–';
+  const humidity = row?.humidity_rh == null ? '–' : `${formatNumber(row.humidity_rh)} % rF`;
+  document.querySelector('#chart-readout-time').textContent = time;
+  document.querySelector('#chart-readout-temperature').textContent = `Temperatur ${temperature}`;
+  document.querySelector('#chart-readout-humidity').textContent = `Luftfeuchtigkeit ${humidity}`;
+  document.querySelector('#chart-latest').hidden = !row || (!trend.pinned && trend.selectedIndex === values.length - 1);
+  chart.tabIndex = row ? 0 : -1;
+  chart.setAttribute('aria-disabled', String(!row));
+  chart.setAttribute('aria-valuemin', '1');
+  chart.setAttribute('aria-valuemax', String(Math.max(1, values.length)));
+  chart.setAttribute('aria-valuenow', String(Math.max(1, trend.selectedIndex + 1)));
+  chart.setAttribute('aria-valuetext', row ? `${time}, Temperatur ${temperature}, Luftfeuchtigkeit ${humidity}` : 'Noch kein Messwert');
+}
+
+function chartIndexAtPointer(event) {
+  const geometry = trend.geometry;
+  const positions = geometry?.positions || [];
+  if (!positions.length) return null;
+  const rect = event.currentTarget.getBoundingClientRect();
+  if (!rect.width) return null;
+  const x = (event.clientX - rect.left) * geometry.width / rect.width;
+  if (x < geometry.left - 12 || x > geometry.right + 12) return null;
+  let low = 0; let high = positions.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (positions[middle].x < x) low = middle + 1; else high = middle;
+  }
+  const next = positions[low]; const previous = positions[Math.max(0, low - 1)];
+  return Math.abs(next.x - x) < Math.abs(previous.x - x) ? next.index : previous.index;
+}
+
+function resetChartSelection() {
+  trend.selectedIndex = (state.data?.series?.length || 0) - 1;
+  trend.pinned = false;
+  if (state.data) renderChart();
 }
 
 function renderFocus() {

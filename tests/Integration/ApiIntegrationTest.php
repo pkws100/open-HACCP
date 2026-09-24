@@ -305,6 +305,53 @@ final class ApiIntegrationTest extends IntegrationTestCase
         self::assertSame('fridge-1', $json['settings']['schedule']['measurement_points'][0]['measurement_point']);
     }
 
+    public function testDashboardSeriesKeepsNewest2500MeasurementsInChronologicalOrder(): void
+    {
+        $deviceId = (int) $this->pdo->query('SELECT id FROM devices LIMIT 1')->fetchColumn();
+        $pointId = (int) $this->pdo->query('SELECT id FROM measurement_points LIMIT 1')->fetchColumn();
+        $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+        $start = $now->modify('-2 hours');
+        $receivedAt = $now->format('Y-m-d H:i:s');
+        $insert = $this->pdo->prepare(
+            'INSERT INTO measurements
+                (device_id, measurement_point_id, sequence, measured_at, received_at,
+                 temperature_c, humidity_rh, battery_mv, created_at)
+             VALUES (:device_id, :point_id, :sequence, :measured_at, :received_at,
+                     4.000, 70.000, NULL, :created_at)',
+        );
+
+        $this->pdo->beginTransaction();
+        for ($sequence = 1; $sequence <= 2502; $sequence++) {
+            // Pairs share a timestamp to also verify sequence ordering at the boundary.
+            $insert->execute([
+                'device_id' => $deviceId,
+                'point_id' => $pointId,
+                'sequence' => $sequence,
+                'measured_at' => $start->modify('+' . intdiv($sequence - 1, 2) . ' seconds')->format('Y-m-d H:i:s'),
+                'received_at' => $receivedAt,
+                'created_at' => $receivedAt,
+            ]);
+        }
+        $insert->execute([
+            'device_id' => $deviceId,
+            'point_id' => $pointId,
+            'sequence' => 2503,
+            'measured_at' => $now->modify('-7 hours')->format('Y-m-d H:i:s'),
+            'received_at' => $receivedAt,
+            'created_at' => $receivedAt,
+        ]);
+        $this->pdo->commit();
+
+        $response = $this->dashboardRequest('/api/v1/dashboard/overview?hours=6');
+        $json = $this->json($response);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertSame(2502, $json['kpis']['measurement_count']);
+        self::assertCount(2500, $json['series']);
+        self::assertSame(range(3, 2502), array_column($json['series'], 'sequence'));
+        self::assertSame($json['kpis']['latest_measured_at'], $json['series'][2499]['measured_at']);
+    }
+
     public function testAnalysisKpisFollowTheSelectedDeviceAndMeasurementPoint(): void
     {
         $this->request('POST', '/api/v1/device/measurements', $this->batch());

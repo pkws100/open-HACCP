@@ -37,7 +37,7 @@ function fixture() {
   const scrollCalls = [];
   const elements = new Map();
   for (const id of ['recent-table', 'recent-pagination', 'recent-page-status', 'recent-prev', 'recent-next',
-    'overview-refresh', 'overview-device', 'overview-point', 'add-device', 'overview-chart']) {
+    'overview-refresh', 'overview-device', 'overview-point', 'add-device', 'overview-chart', 'chart-latest']) {
     elements.set(`#${id}`, element());
   }
   elements.set('#recent-heading', {

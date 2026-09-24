@@ -180,12 +180,13 @@ final readonly class DashboardRepository
                     calibration_config_version, humidity_rh, battery_mv
              FROM measurements
              WHERE measurement_point_id = :measurement_point_id AND measured_at >= :cutoff
-             ORDER BY measured_at ASC, sequence ASC
+             ORDER BY measured_at DESC, sequence DESC
              LIMIT 2500',
         );
         $statement->execute(['measurement_point_id' => $measurementPointId, 'cutoff' => $cutoff]);
 
-        return $statement->fetchAll();
+        // Limit the newest indexed rows first, then present them chronologically to the chart.
+        return array_reverse($statement->fetchAll());
     }
 
     public function latestMeasurementId(): int
