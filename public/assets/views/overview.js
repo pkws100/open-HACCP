@@ -212,6 +212,9 @@ async function changeRecentPage(direction) {
     state.recentPage = result.recent_pagination.page;
     recentPagePending = false;
     renderRecent();
+    const heading = document.querySelector('#recent-heading');
+    heading?.focus({ preventScroll: true });
+    heading?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
   } catch (error) {
     if (sequence !== recentRequestSequence) return;
     recentPagePending = false;

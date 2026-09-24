@@ -33,11 +33,17 @@ function page(pageNumber, total = 40, snapshotId = 41) {
 function fixture() {
   const requests = [];
   const messages = [];
+  const focusCalls = [];
+  const scrollCalls = [];
   const elements = new Map();
   for (const id of ['recent-table', 'recent-pagination', 'recent-page-status', 'recent-prev', 'recent-next',
     'overview-refresh', 'overview-device', 'overview-point', 'add-device', 'overview-chart']) {
     elements.set(`#${id}`, element());
   }
+  elements.set('#recent-heading', {
+    focus(options) { focusCalls.push(options); },
+    scrollIntoView(options) { scrollCalls.push(options); },
+  });
   const hours = [6, 24, 72, 168].map((value) => ({ ...element(), dataset: { hours: String(value) } }));
   const sandbox = {
     URLSearchParams,
@@ -49,7 +55,7 @@ function fixture() {
       querySelector(selector) { return elements.get(selector) || null; },
       querySelectorAll(selector) { return selector === '[data-hours]' ? hours : []; },
     },
-    window: { addEventListener() {} },
+    window: { addEventListener() {}, matchMedia() { return { matches: false }; } },
   };
   vm.runInNewContext(`${source}\nrender = () => renderRecent();\nglobalThis.paginationTest = {
     state, overviewView, changeRecentPage, renderRecent, setContext(value) { context = value; }
@@ -65,11 +71,11 @@ function fixture() {
     recent_pagination: page(1),
   };
   view.renderRecent();
-  return { view, elements, requests, messages, hours };
+  return { view, elements, requests, messages, hours, focusCalls, scrollCalls };
 }
 
 test('next page uses the lightweight endpoint and a stable snapshot without replacing overview data', async () => {
-  const { view, elements, requests } = fixture();
+  const { view, elements, requests, focusCalls, scrollCalls } = fixture();
   const selectedDevice = view.state.data.selected_device;
   const nav = elements.get('#recent-pagination');
   assert.equal(elements.get('#recent-page-status').textContent, 'Seite 1 von 2 · 1–25 von 40 Messwerten');
@@ -92,10 +98,15 @@ test('next page uses the lightweight endpoint and a stable snapshot without repl
   assert.equal(elements.get('#recent-next').disabled, true);
   assert.equal(nav.attributes.get('aria-busy'), 'false');
   assert.match(elements.get('#recent-table').innerHTML, /<td data-label="Sequenz">16<\/td>/);
+  assert.equal(focusCalls.length, 1);
+  assert.equal(focusCalls[0].preventScroll, true);
+  assert.equal(scrollCalls.length, 1);
+  assert.equal(scrollCalls[0].behavior, 'smooth');
+  assert.equal(scrollCalls[0].block, 'start');
 });
 
 test('duplicate taps, bounds and failed requests retain the current page', async () => {
-  const { view, requests, messages, elements } = fixture();
+  const { view, requests, messages, elements, scrollCalls } = fixture();
   await view.changeRecentPage(-1);
   assert.equal(requests.length, 0);
   const first = view.changeRecentPage(1);
@@ -106,10 +117,11 @@ test('duplicate taps, bounds and failed requests retain the current page', async
   assert.equal(view.state.recentPage, 1);
   assert.deepEqual(messages, ['Verbindung fehlgeschlagen']);
   assert.equal(elements.get('#recent-next').disabled, false);
+  assert.equal(scrollCalls.length, 0);
 });
 
 test('an unexpected backend selection cannot replace the current sensor history', async () => {
-  const { view, requests, messages, elements } = fixture();
+  const { view, requests, messages, elements, scrollCalls } = fixture();
   const originalTable = elements.get('#recent-table').innerHTML;
   const pending = view.changeRecentPage(1);
   requests[0].resolve({ selection: { device_uid: 'sensor-b', measurement_point: 'temperature-1' },
@@ -118,6 +130,7 @@ test('an unexpected backend selection cannot replace the current sensor history'
   assert.equal(view.state.recentPage, 1);
   assert.equal(elements.get('#recent-table').innerHTML, originalTable);
   assert.deepEqual(messages, ['Messwerte konnten nicht geladen werden.']);
+  assert.equal(scrollCalls.length, 0);
 });
 
 test('a device refresh invalidates a slow page response and clears the old snapshot', async () => {

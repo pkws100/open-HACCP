@@ -200,6 +200,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-strong); 
 .signal-icon.bars-1 i:nth-child(1), .signal-icon.bars-2 i:nth-child(-n+2), .signal-icon.bars-3 i:nth-child(-n+3), .signal-icon.bars-4 i { opacity: 1; }
 
 .data-section { margin-top: 30px; }
+#recent-heading { scroll-margin-top: 94px; }
 .recent-pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
 .recent-pagination > span { color: var(--muted); font-size: 12px; text-align: center; }
 .recent-pagination button { min-width: 88px; }
@@ -329,6 +330,7 @@ legend { color: var(--muted); font-size: 11px; padding: 0 6px; }
   .data-section tbody td:first-child { border-top: 0; }.data-section tbody td::before { content: attr(data-label); color: var(--faint); font-size: 9px; font-weight: 700; letter-spacing: .07em; text-align: left; text-transform: uppercase; }
   .data-section tbody td > * { justify-self: end; }.data-section .device-cell { justify-self: stretch; justify-content: flex-end; min-width: 0; }.data-section .empty-row { padding: 0; }.data-section .empty-row td { display: block; padding: 22px 10px; text-align: center; }.data-section .empty-row td::before { content: none; }
   .table-action { min-height: 38px; padding: 8px; }
+  #recent-heading { scroll-margin-top: 82px; }
   .recent-pagination { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) minmax(0, 1fr); gap: 8px; }
   .recent-pagination button { min-width: 0; min-height: 44px; }
   .recent-pagination > span { font-size: 11px; }
