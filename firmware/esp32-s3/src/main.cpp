@@ -16,6 +16,7 @@
 #include "ProvisioningPortal.h"
 #include "QueuePressure.h"
 #include "SensorValidation.h"
+#include "../../common/StartupPolicy.h"
 
 namespace {
 DeviceState deviceState;
@@ -46,6 +47,17 @@ bool queuePressureReached()
         runtimeConfig.maxBatchSize,
         DeviceState::QueueCapacity
     );
+}
+
+bool startupContactDue(const OperationalState &state)
+{
+    const esp_reset_reason_t reason = esp_reset_reason();
+    // The USB test profile restarts itself after a planned light-sleep or
+    // bounded awake fallback. Those restarts must keep the server cadence.
+    const bool plannedFallbackRestart = reason == ESP_RST_SW
+        && (state.lastSleepMode == SleepMode::LightSleepFallback
+            || state.lastSleepMode == SleepMode::AwakeRestartFallback);
+    return StartupPolicy::bootContactDue(reason == ESP_RST_DEEPSLEEP, plannedFallbackRestart);
 }
 
 bool elapsed(uint32_t since, uint32_t interval)
@@ -523,8 +535,11 @@ void runWakeCycle()
 {
     int64_t now = validClock() ? static_cast<int64_t>(time(nullptr)) : 0;
     const OperationalState initialState = deviceState.operational();
+    const bool startupContact = startupContactDue(initialState);
 
-    if (validClock() && now >= dueAt(initialState.lastSampleAt, runtimeConfig.measurementIntervalSeconds, now)) {
+    const bool sampledBeforeNetwork = StartupPolicy::sampleDue(validClock(), startupContact,
+        initialState.lastSampleAt, runtimeConfig.measurementIntervalSeconds, now);
+    if (sampledBeforeNetwork) {
         sampleSensor(now);
     }
 
@@ -536,12 +551,10 @@ void runWakeCycle()
     const bool retryDue = validClock() && initialState.nextNetworkAttemptAt > 0
         && now >= initialState.nextNetworkAttemptAt;
     const bool queuePressure = queuePressureReached();
-    bool networkDue = needsClock || uploadDue || configDue || retryDue || queuePressure;
-    if (!validClock() && initialState.retrySleepPending) {
-        networkDue = false;
-    } else if (networkDue && validClock() && initialState.nextNetworkAttemptAt > now) {
-        networkDue = false;
-    }
+    const bool backoffPending = (!validClock() && initialState.retrySleepPending)
+        || (validClock() && initialState.nextNetworkAttemptAt > now);
+    const bool networkDue = StartupPolicy::contactDue(startupContact, needsClock,
+        uploadDue, configDue, retryDue, queuePressure, backoffPending);
 
     if (networkDue) {
         if (!connectWifi()) {
@@ -551,9 +564,14 @@ void runWakeCycle()
             scheduleRetry(validClock() ? static_cast<int64_t>(time(nullptr)) : 1704067200);
         } else {
             now = static_cast<int64_t>(time(nullptr));
+            if (startupContact) {
+                // Verify the current server cadence on a true start. A failed
+                // refresh cannot discard the saved configuration or queue.
+                fetchAndApplyConfig(now);
+            }
             const int64_t lastSampleAt = deviceState.operational().lastSampleAt;
-            if (lastSampleAt <= 0
-                || now >= dueAt(lastSampleAt, runtimeConfig.measurementIntervalSeconds, now)) {
+            if (!sampledBeforeNetwork && StartupPolicy::sampleDue(true, startupContact, lastSampleAt,
+                runtimeConfig.measurementIntervalSeconds, now)) {
                 sampleSensor(now);
             }
             uploadDue = now >= dueAt(
@@ -562,7 +580,7 @@ void runWakeCycle()
                 now
             );
             configDue = now >= dueAt(deviceState.operational().lastConfigCheckAt, OPEN_HACCP_CONFIG_REFRESH_SECONDS, now);
-            if (uploadDue || configDue || retryDue
+            if (startupContact || uploadDue || configDue || retryDue
                 || queuePressureReached()) {
                 uploadOrHeartbeat(now);
             }

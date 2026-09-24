@@ -9,9 +9,25 @@
 #include "DeviceState.h"
 #include "QueuePressure.h"
 #include "SensorValidation.h"
+#include "../../common/StartupPolicy.h"
 
 int main()
 {
+    constexpr int64_t now = 1704067200;
+    // A power restoration reports once even when the previous six-hour upload
+    // and five-minute sample deadlines are still in the future. Timed wakes
+    // continue to honor both intervals, and a backoff remains authoritative.
+    assert(StartupPolicy::bootContactDue(false, false));
+    assert(!StartupPolicy::bootContactDue(true, false));
+    assert(!StartupPolicy::bootContactDue(false, true));
+    assert(StartupPolicy::sampleDue(true, true, now - 30, 300, now));
+    assert(!StartupPolicy::sampleDue(true, false, now - 30, 300, now));
+    assert(!StartupPolicy::sampleDue(false, true, now - 30, 300, now));
+    assert(StartupPolicy::contactDue(true, false, false, false, false, false, false));
+    assert(!StartupPolicy::contactDue(false, false, false, false, false, false, false));
+    assert(!StartupPolicy::contactDue(true, false, false, false, false, false, true));
+    assert(StartupPolicy::contactDue(false, false, true, false, false, false, false));
+
     // Server batch 500 exceeds the 64-slot queue: upload with four slots free.
     assert(!QueuePressure::reached(59, 500, DeviceState::QueueCapacity));
     assert(QueuePressure::reached(60, 500, DeviceState::QueueCapacity));

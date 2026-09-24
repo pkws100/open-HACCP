@@ -1,6 +1,6 @@
 # ESP32-S3 firmware implementation handoff
 
-This document is now the implementation and hardware-release handoff for `firmware/esp32-s3`. Firmware `0.3.0-power-managed` implements the first bounded Wake–Measure–Persist–Transmit–Sleep cycle without weakening the provisioning, TLS, idempotency or exact-acknowledgement rules in [`FIRMWARE_CONTRACT.md`](FIRMWARE_CONTRACT.md). It compiles both the normal Deep-Sleep profile and a forced Light-Sleep fallback profile.
+This document is now the implementation and hardware-release handoff for `firmware/esp32-s3`. Firmware `0.3.2-power-managed` implements the bounded Wake–Measure–Persist–Transmit–Sleep cycle without weakening the provisioning, TLS, idempotency or exact-acknowledgement rules in [`FIRMWARE_CONTRACT.md`](FIRMWARE_CONTRACT.md). It compiles both the normal Deep-Sleep profile and a forced Light-Sleep fallback profile.
 
 Implemented in software:
 
@@ -8,6 +8,7 @@ Implemented in software:
 - timer Deep Sleep with Light-Sleep and bounded restart fallback;
 - two bounded WLAN attempts per wake plus persisted 1/5/15/30/60-minute jittered backoff;
 - optional board/chip/sensor/capacity, queue, wake/reset and accumulated failure telemetry;
+- one authenticated config refresh plus measurement upload or diagnostic heartbeat after a real power-on or reset, while timer wakes retain the configured cadence and pending backoff;
 - exact batch ACK deletion followed by independent piggyback-config validation;
 - explicit config GET fallback, durable `config_ack`, and a same-wake confirmation heartbeat for the version actually activated;
 - dashboard controls for the default/per-provisioned-point sampling interval and one, three, five or other supported transmissions per day.
@@ -46,6 +47,8 @@ RTC/cold wake
 ```
 
 Sampling and persistence happen before a normal network attempt. A cold boot that cannot reconstruct trustworthy UTC is the exception: synchronize time before assigning `measured_at`, or retain a separately marked local sample until a defensible UTC timestamp can be derived. Never fabricate a timestamp or replace measurement time with upload time.
+
+On an actual power-on or unexpected reset, perform one prompt authenticated contact even when the persisted normal upload deadline lies in the future. Fetch current configuration, upload a valid newly sampled or pending record, or send a diagnostic heartbeat when no valid measurement exists. Honor an already scheduled retry/backoff. A timer wake and the ESP32 light-sleep fallback restart remain normal scheduled cycles; they must not force a network connection every time. A first power-on without trustworthy UTC can connect to obtain time, but cannot queue a fabricated-timestamp reading while offline.
 
 ## Durable state model
 

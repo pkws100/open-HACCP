@@ -11,13 +11,13 @@
 #endif
 
 #if OPEN_HACCP_BATTERY_POWER_UNMONITORED
-#define OPEN_HACCP_FIRMWARE_VERSION "0.4.1-esp32-dht22-battery-unmonitored"
+#define OPEN_HACCP_FIRMWARE_VERSION "0.4.2-esp32-dht22-battery-unmonitored"
 #define OPEN_HACCP_HARDWARE_REVISION "esp32-wroom-32-dht22-battery-unmonitored-prototype"
 #elif defined(OPEN_HACCP_SENSOR_DHT22) && OPEN_HACCP_SENSOR_DHT22
-#define OPEN_HACCP_FIRMWARE_VERSION "0.4.1-esp32-dht22"
+#define OPEN_HACCP_FIRMWARE_VERSION "0.4.2-esp32-dht22"
 #define OPEN_HACCP_HARDWARE_REVISION "esp32-wroom-32-dht22-usb-prototype"
 #else
-#define OPEN_HACCP_FIRMWARE_VERSION "0.3.1-power-managed"
+#define OPEN_HACCP_FIRMWARE_VERSION "0.3.2-power-managed"
 #define OPEN_HACCP_HARDWARE_REVISION "esp32-s3-sht45-prototype"
 #endif
 

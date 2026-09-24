@@ -9,6 +9,7 @@
 #include "FirmwareConfig.h"
 #include "HaccpClient.h"
 #include "ProvisioningPortal.h"
+#include "../../common/StartupPolicy.h"
 
 namespace {
 DeviceState deviceState;
@@ -20,6 +21,7 @@ DHT sensor(OPEN_HACCP_DHT_PIN, DHT22);
 
 bool portalMode = false;
 bool sensorReady = false;
+bool startupContactPending = false;
 uint32_t bootCount = 0;
 uint32_t wifiConnectMs = 0;
 uint32_t cycleStartedMillis = 0;
@@ -303,9 +305,13 @@ bool factoryResetRequested()
 void runCycle()
 {
     cycleStartedMillis = millis();
+    const bool startupContact = startupContactPending;
+    startupContactPending = false;
     int64_t now = validClock() ? static_cast<int64_t>(time(nullptr)) : 0;
     const OperationalState initial = deviceState.operational();
-    if (validClock() && now >= dueAt(initial.lastSampleAt, runtimeConfig.measurementIntervalSeconds, now)) sampleSensor(now);
+    const bool sampledBeforeNetwork = StartupPolicy::sampleDue(validClock(), startupContact,
+        initial.lastSampleAt, runtimeConfig.measurementIntervalSeconds, now);
+    if (sampledBeforeNetwork) sampleSensor(now);
 
     const bool uploadDue = validClock() && now >= dueAt(initial.lastSuccessfulTransmissionAt,
         runtimeConfig.uploadIntervalSeconds, now);
@@ -313,8 +319,9 @@ void runCycle()
         OPEN_HACCP_CONFIG_REFRESH_SECONDS, now);
     const bool retryDue = validClock() && initial.nextNetworkAttemptAt > 0 && now >= initial.nextNetworkAttemptAt;
     const bool queuePressure = deviceState.pendingCount() >= DeviceState::QueueCapacity - 4;
-    bool networkDue = !validClock() || uploadDue || configDue || retryDue || queuePressure;
-    if (validClock() && initial.nextNetworkAttemptAt > now) networkDue = false;
+    const bool networkDue = StartupPolicy::contactDue(startupContact, !validClock(),
+        uploadDue, configDue, retryDue, queuePressure,
+        validClock() && initial.nextNetworkAttemptAt > now);
 
     if (networkDue) {
         if (!connectWifi()) {
@@ -323,13 +330,19 @@ void runCycle()
             scheduleRetry(validClock() ? time(nullptr) : 1704067200);
         } else {
             now = time(nullptr);
-            if (now >= dueAt(deviceState.operational().lastSampleAt, runtimeConfig.measurementIntervalSeconds, now))
+            if (startupContact) {
+                // Fetch authenticated config on an actual power-up or reset.
+                // The saved version remains usable when refresh fails.
+                fetchAndApplyConfig(now);
+            }
+            if (!sampledBeforeNetwork && StartupPolicy::sampleDue(true, startupContact,
+                deviceState.operational().lastSampleAt, runtimeConfig.measurementIntervalSeconds, now))
                 sampleSensor(now);
             const bool due = now >= dueAt(deviceState.operational().lastSuccessfulTransmissionAt,
                 runtimeConfig.uploadIntervalSeconds, now)
                 || now >= dueAt(deviceState.operational().lastConfigCheckAt,
                     OPEN_HACCP_CONFIG_REFRESH_SECONDS, now)
-                || retryDue || queuePressure;
+                || retryDue || queuePressure || startupContact;
             if (due) {
                 for (size_t request = 0; request < DeviceState::QueueCapacity; ++request) {
                     const size_t before = deviceState.pendingCount();
@@ -352,8 +365,10 @@ void setup()
     delay(250);
     Serial.println("Open HACCP ESP8266 D1 mini / DHT22 starting.");
     deviceState.begin();
-    currentWakeReason = deepSleepWake() ? "timer" : "cold_boot";
-    currentResetReason = deepSleepWake() ? "deep_sleep" : "other";
+    const bool timerWake = deepSleepWake();
+    currentWakeReason = timerWake ? "timer" : "cold_boot";
+    currentResetReason = timerWake ? "deep_sleep" : "other";
+    startupContactPending = StartupPolicy::bootContactDue(timerWake, false);
     if (factoryResetRequested()) {
         deviceState.factoryReset();
         Serial.println("Destructive factory reset completed; setup mode follows.");

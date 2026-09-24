@@ -7,10 +7,10 @@
 #endif
 
 #if OPEN_HACCP_BATTERY_POWER_UNMONITORED
-#define OPEN_HACCP_FIRMWARE_VERSION "0.4.1-d1-mini-dht22-battery-unmonitored"
+#define OPEN_HACCP_FIRMWARE_VERSION "0.4.2-d1-mini-dht22-battery-unmonitored"
 #define OPEN_HACCP_HARDWARE_REVISION "esp8266-d1-mini-dht22-battery-unmonitored-prototype"
 #else
-#define OPEN_HACCP_FIRMWARE_VERSION "0.4.1-d1-mini-dht22"
+#define OPEN_HACCP_FIRMWARE_VERSION "0.4.2-d1-mini-dht22"
 #define OPEN_HACCP_HARDWARE_REVISION "esp8266-d1-mini-dht22-prototype"
 #endif
 #define OPEN_HACCP_BOARD_MODEL "ESP8266 D1 mini ESP8266MOD"
